@@ -39,7 +39,7 @@ TABLE_FIELDS = {
     "generation_queue": "id,queue_id,episode_id,created_by,status,priority,error,started_at,completed_at,created_at,updated_at",
     "generation_metrics": "id,episode_id,created_by,provider,voice_id,character_name,status,duration_seconds,api_calls,total_cost_usd,error,started_at,completed_at,created_at",
     "usage_logs": "id,log_id,user_id,action_type,resource_id,resource_type,credits_used,details,metadata,created_at",
-    "audio_assets": "id,asset_id,episode_id,story_id,created_by,asset_type,file_path,storage_file_id,duration_seconds,file_size,created_at,updated_at",
+    "audio_assets": "id,asset_id,episode_id,story_id,created_by,asset_type,file_path,storage_file_id,duration_seconds,file_size,created_at",
     "tts_cache": "id,cache_id,text_hash,voice_id,provider,storage_file_id,duration_seconds,hit_count,created_at,updated_at",
     "pending_deletions": "id,deletion_id,resource_type,resource_id,storage_file_ids,scheduled_for,status,resolved_at,created_at",
 }

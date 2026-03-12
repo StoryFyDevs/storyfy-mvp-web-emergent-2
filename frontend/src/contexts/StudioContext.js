@@ -84,7 +84,6 @@ export function StudioProvider({ children, storyId }) {
         if (epData && epData.length > 0) {
           const savedId = localStorage.getItem(`current_episode_${storyId}`);
           const savedEp = savedId ? epData.find(e => e.episode_id === savedId) : null;
-          setIsLoadingEpisode(true);
           setSelectedEpisode(savedEp || epData[0]);
         }
       } catch (err) {
