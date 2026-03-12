@@ -96,13 +96,27 @@ async def verify_supabase_token(token: str) -> dict:
 
 
 async def get_or_create_profile(auth_id: str, email: str = "", display_name: str = "", metadata: dict = None):
-    """Get user profile by auth_id, create if not exists."""
+    """Get user profile by auth_id, create if not exists.
+    Falls back to email lookup so existing profiles from previous auth providers get relinked.
+    """
     import supabase_db as db
 
+    # Primary: find by Supabase auth_id
     profile = await db.find_one("user_profiles", {"auth_id": auth_id})
     if profile:
         return profile
 
+    # Fallback: find by email (handles migration from previous auth provider)
+    if email:
+        profile = await db.find_one("user_profiles", {"email": email})
+        if profile:
+            # Relink this profile to the new Supabase auth_id
+            await db.update_rows("user_profiles", {"id": {"_eq": profile["id"]}}, {"auth_id": auth_id})
+            profile["auth_id"] = auth_id
+            logger.info(f"Relinked existing profile for {email} to new auth_id {auth_id}")
+            return profile
+
+    # No existing profile — create a fresh one
     role = "creator"
     if metadata and metadata.get("role"):
         role = metadata["role"]

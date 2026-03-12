@@ -57,7 +57,16 @@ async def signup(user_data: UserSignup):
             "token": "",
         }
 
-    access_token = session.access_token if session else ""
+    # Email confirmation required — no session yet
+    if not session or not session.access_token:
+        return {
+            "message": "Account created! Please check your email to confirm your account, then sign in.",
+            "requires_verification": True,
+            "user": None,
+            "token": "",
+        }
+
+    access_token = session.access_token
 
     profile = await auth_service.get_or_create_profile(
         auth_id=user.id,
