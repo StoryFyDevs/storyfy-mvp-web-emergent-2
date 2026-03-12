@@ -950,9 +950,6 @@ async def admin_global_usage_stats(authorization: Optional[str] = Header(None)):
         by_type[gt]["credits"] += l.get("text_length", 0)
         by_type[gt]["duration"] += l.get("duration_seconds", 0)
 
-    # Latest sync
-    latest_sync = await ndb.find_one("elevenlabs_sync_logs", order_by={"created_at": "desc"})
-
     return {
         "total_credits_used": total_credits,
         "total_audio_seconds": round(total_duration, 2),
@@ -964,11 +961,7 @@ async def admin_global_usage_stats(authorization: Optional[str] = Header(None)):
         "total_storage_mb": 0,
         "active_alerts": active_alerts,
         "by_type": [{"type": t, "count": v["count"], "credits": v["credits"], "duration": round(v["duration"], 2)} for t, v in by_type.items()],
-        "elevenlabs_sync": {
-            "status": latest_sync.get("status", "") if latest_sync else "",
-            "voices_count": latest_sync.get("voices_count", 0) if latest_sync else 0,
-            "created_at": str(latest_sync.get("created_at", "")) if latest_sync else None,
-        } if latest_sync else None
+        "elevenlabs_sync": None
     }
 
 

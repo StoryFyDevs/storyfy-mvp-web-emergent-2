@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Shield, LogOut, ArrowLeft, Volume2, VolumeX, Music, Mic2, Zap,
   ZoomIn, ZoomOut, Eye, Play, Pause, Square, SkipBack,
-  AlertTriangle, FileText, Layers
+  FileText, Layers
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Slider } from '../../components/ui/slider';
@@ -33,7 +33,6 @@ function AdminProjectViewer() {
   const [loading, setLoading] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [activeTab, setActiveTab] = useState('timeline');
-  const [brokenClips, setBrokenClips] = useState(new Set());
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -84,7 +83,6 @@ function AdminProjectViewer() {
     navigate('/admin-access/login');
   };
 
-
   const project = data?.project_state || {};
   const tracks = useMemo(() => (data?.project_state?.tracks || []), [data]);
   const dialogues = useMemo(() => data?.dialogues || [], [data]);
@@ -117,23 +115,26 @@ function AdminProjectViewer() {
     return audioContextRef.current;
   }, []);
 
+  // Mirror AudioStudio's resolveAudioUrl exactly — relative path for stream-file
   const resolveAudioUrl = useCallback((url) => {
     if (!url) return null;
     if (url.startsWith('data:')) return url;
     if (url.startsWith('nhost-file:')) {
       const fileId = url.replace('nhost-file:', '');
-      return `${process.env.REACT_APP_BACKEND_URL}/api/audio/stream-file/${fileId}`;
+      return `/api/audio/stream-file/${fileId}`;
     }
     return url;
   }, []);
 
+  // Mirror AudioStudio's loadAudioBuffer — silently return null on failure, no visual marking
   const loadAudioBuffer = useCallback(async (clip) => {
     if (!clip?.url) return null;
     if (audioBuffersRef.current[clip.id]) return audioBuffersRef.current[clip.id];
     const ctx = await ensureAudioContext();
+    if (!ctx) return null;
+    const resolvedUrl = resolveAudioUrl(clip.url);
+    if (!resolvedUrl) return null;
     try {
-      const resolvedUrl = resolveAudioUrl(clip.url);
-      if (!resolvedUrl) return null;
       let arrayBuffer;
       if (resolvedUrl.startsWith('data:')) {
         const base64 = resolvedUrl.split(',')[1];
@@ -142,16 +143,23 @@ function AdminProjectViewer() {
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         arrayBuffer = bytes.buffer;
       } else {
-        const response = await fetch(resolvedUrl, { credentials: 'include' });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const response = await fetch(resolvedUrl);
+        if (!response.ok) {
+          console.warn(`[Admin] Failed to fetch ${clip.id}: HTTP ${response.status}`);
+          return null;
+        }
         arrayBuffer = await response.arrayBuffer();
+        if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+          console.warn(`[Admin] Empty response for ${clip.id}`);
+          return null;
+        }
       }
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       audioBuffersRef.current[clip.id] = audioBuffer;
       return audioBuffer;
     } catch (err) {
-      console.warn(`[Admin] Failed to load audio for ${clip.id}:`, err.message);
-      setBrokenClips(prev => new Set([...prev, clip.id]));
+      console.warn(`[Admin] Failed to load buffer for ${clip.id}:`, err.message);
+      delete audioBuffersRef.current[clip.id];
       return null;
     }
   }, [ensureAudioContext, resolveAudioUrl]);
@@ -185,8 +193,6 @@ function AdminProjectViewer() {
 
     if (currentTime < clipStart) {
       when = ctx.currentTime + (clipStart - currentTime);
-      offset = trimStart;
-      dur = clipDuration;
     } else {
       offset = trimStart + (currentTime - clipStart);
       dur = clipEnd - currentTime;
@@ -202,6 +208,15 @@ function AdminProjectViewer() {
       source.onended = () => { delete audioSourcesRef.current[key]; delete gainNodesRef.current[key]; };
     }
   }, [masterVolume]);
+
+  const stopPlayback = useCallback(() => {
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+    Object.values(audioSourcesRef.current).forEach(s => { try { s.stop(); } catch {} });
+    audioSourcesRef.current = {};
+    gainNodesRef.current = {};
+    if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; }
+  }, []);
 
   const startPlayback = useCallback(async () => {
     const ctx = await ensureAudioContext();
@@ -226,16 +241,7 @@ function AdminProjectViewer() {
       animationFrameRef.current = requestAnimationFrame(updateLoop);
     };
     animationFrameRef.current = requestAnimationFrame(updateLoop);
-  }, [timelineTime, duration, tracks, ensureAudioContext, scheduleClip]);
-
-  const stopPlayback = useCallback(() => {
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    Object.values(audioSourcesRef.current).forEach(s => { try { s.stop(); } catch {} });
-    audioSourcesRef.current = {};
-    gainNodesRef.current = {};
-    if (animationFrameRef.current) { cancelAnimationFrame(animationFrameRef.current); animationFrameRef.current = null; }
-  }, []);
+  }, [timelineTime, duration, tracks, ensureAudioContext, scheduleClip, stopPlayback]);
 
   const handlePlayPause = useCallback(async () => {
     if (isPlaying) {
@@ -279,15 +285,13 @@ function AdminProjectViewer() {
     return <Mic2 className="w-3.5 h-3.5 text-neon-cyan" />;
   };
 
-  const clipColor = (type, broken) => {
-    if (broken) return 'from-amber-500/30 to-amber-500/10 border-amber-500/50';
+  const clipColor = (type) => {
     if (type === 'music') return 'from-warm-gold/30 to-warm-gold/10 border-warm-gold/50';
     if (type === 'sfx') return 'from-sunset-orange/30 to-sunset-orange/10 border-sunset-orange/50';
     return 'from-neon-cyan/30 to-neon-cyan/10 border-neon-cyan/50';
   };
 
   const totalClips = tracks.reduce((sum, t) => sum + (t.clips?.length || 0), 0);
-  const brokenCount = brokenClips.size;
 
   if (loading) {
     return <div className="min-h-screen bg-obsidian flex items-center justify-center"><div className="text-neon-cyan font-space">Loading project...</div></div>;
@@ -354,14 +358,6 @@ function AdminProjectViewer() {
 
           {/* Right: transport + controls */}
           <div className="flex items-center gap-3 shrink-0">
-            {brokenCount > 0 && (
-              <div className="flex items-center gap-1.5 text-amber-400 text-xs">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>{brokenCount} clip{brokenCount !== 1 ? 's' : ''} unavailable</span>
-              </div>
-            )}
-
-
             <div className="flex items-center gap-1 bg-slate rounded-sm px-2 py-1">
               <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-white" onClick={handleStop} data-testid="stop-btn">
                 <Square className="w-3.5 h-3.5" />
@@ -475,21 +471,16 @@ function AdminProjectViewer() {
                       {(track.clips || []).map((clip) => {
                         const clipLeft = (clip.start || 0) * pps;
                         const clipWidth = Math.max((clip.duration || 0) * pps, 40);
-                        const isBroken = brokenClips.has(clip.id);
                         return (
                           <div
                             key={clip.id}
-                            className={`absolute top-2 h-16 bg-gradient-to-r ${clipColor(track.type, isBroken)} border rounded-sm px-2 py-1`}
+                            className={`absolute top-2 h-16 bg-gradient-to-r ${clipColor(track.type)} border rounded-sm px-2 py-1`}
                             style={{ left: `${clipLeft}px`, width: `${clipWidth}px` }}
-                            title={isBroken ? `${clip.name}\n⚠ Audio unavailable (legacy data — use Re-generate Audio)` : `${clip.name}\nStart: ${formatTime(clip.start || 0)}\nDuration: ${formatTime(clip.duration || 0)}`}
+                            title={`${clip.name}\nStart: ${formatTime(clip.start || 0)}\nDuration: ${formatTime(clip.duration || 0)}`}
                             data-testid={`viewer-clip-${clip.id}`}
                           >
-                            <div className="flex items-center gap-1">
-                              {isBroken && <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />}
-                              <span className="text-xs text-white truncate font-medium">{clip.name}</span>
-                            </div>
+                            <span className="text-xs text-white truncate font-medium block">{clip.name}</span>
                             <span className="text-xs text-white/50 block">{formatTime(clip.duration || 0)}</span>
-                            {isBroken && <span className="text-xs text-amber-400/80 block truncate">unavailable</span>}
                           </div>
                         );
                       })}
@@ -526,12 +517,9 @@ function AdminProjectViewer() {
                   const lineNum = d.index !== undefined ? d.index + 1 : i + 1;
                   return (
                     <div key={i} className="flex gap-4 group" data-testid={`dialogue-line-${i}`}>
-                      {/* Line number */}
                       <div className="w-8 shrink-0 pt-3 text-right">
                         <span className="text-text-secondary/40 text-xs font-mono">{lineNum}</span>
                       </div>
-
-                      {/* Card */}
                       <div className="flex-1 bg-charcoal/60 border border-white/5 rounded-lg p-4 hover:border-white/10 transition-colors">
                         <div className="flex items-center gap-3 mb-2">
                           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
