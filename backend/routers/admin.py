@@ -322,12 +322,45 @@ async def admin_story_episodes(story_id: str, authorization: Optional[str] = Hea
     episodes = await ndb.find_many("episodes", {"story_id": story_id}, order_by={"order_index": "asc"})
     user = await ndb.find_one("user_profiles", {"user_id": story.get("created_by", "")})
 
+    def _parse_project_summary(ep):
+        """Return a lightweight project_state summary (no audio data) for the episode list."""
+        import json as _json
+        ps = ep.get("project_state", {})
+        if isinstance(ps, str):
+            try:
+                ps = _json.loads(ps)
+            except Exception:
+                ps = {}
+        if not ps or not isinstance(ps, dict):
+            return None
+        tracks = ps.get("tracks", [])
+        if not tracks:
+            return None
+        return {
+            "version": ps.get("version", 0),
+            "tracks": [
+                {
+                    "id": t.get("id", ""),
+                    "name": t.get("name", ""),
+                    "type": t.get("type", "voice"),
+                    "clips": [
+                        {"id": c.get("id", ""), "name": c.get("name", ""), "start": c.get("start", 0), "duration": c.get("duration", 0)}
+                        for c in (t.get("clips") or [])
+                    ],
+                }
+                for t in tracks
+            ],
+        }
+
     return {
         "story": {
             "story_id": story.get("story_id", ""),
             "title": story.get("title", ""),
             "genre": story.get("genre", ""),
             "status": story.get("status", "draft"),
+            "description": story.get("description", ""),
+            "story_type": story.get("story_type", ""),
+            "language": story.get("language", ""),
         },
         "creator_name": user.get("name", "Unknown") if user else "Unknown",
         "creator_email": user.get("email", "") if user else "",
@@ -341,6 +374,7 @@ async def admin_story_episodes(story_id: str, authorization: Optional[str] = Hea
                 "is_published": ep.get("is_published", False),
                 "final_audio_url": ep.get("final_audio_url", ""),
                 "created_at": str(ep.get("created_at", "")),
+                "project_state": _parse_project_summary(ep),
             }
             for ep in episodes
         ]

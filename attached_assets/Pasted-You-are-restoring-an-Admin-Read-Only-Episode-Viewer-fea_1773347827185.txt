@@ -1,0 +1,172 @@
+You are restoring an **Admin Read-Only Episode Viewer feature** in the StoryFy platform.
+
+This feature existed earlier but is currently not working.
+
+Do not modify unrelated systems.
+
+---
+
+SYSTEM CONTEXT
+
+StoryFy has two types of users:
+
+1. Creators
+2. Admin (StoryFy team)
+
+Creators can:
+
+• create stories
+• create episodes
+• write scripts
+• generate audio
+• edit clips in Audio Studio.
+
+Admins must be able to **view creator content but not edit it**.
+
+---
+
+FEATURE TO RESTORE
+
+Admin users should be able to:
+
+1. Open any creator profile.
+2. View their stories.
+3. Open any story.
+4. View episodes inside that story.
+5. Open an episode.
+6. See the **Audio Studio timeline**.
+7. Play audio clips.
+
+However, the entire interface must be **read-only**.
+
+---
+
+CURRENT PROBLEM
+
+Admin users can no longer properly:
+
+• view episodes inside a story
+• load the Audio Studio timeline
+• listen to generated audio clips.
+
+The feature existed previously but is now broken.
+
+---
+
+REQUIRED ADMIN VIEW WORKFLOW
+
+Admin Dashboard
+↓
+Select Creator
+↓
+View Creator Profile
+↓
+Open Story
+↓
+View Episodes
+↓
+Open Episode
+↓
+View Script + Audio Studio timeline.
+
+Admins should be able to **listen to clips directly in the timeline**.
+
+---
+
+READ-ONLY MODE REQUIREMENTS
+
+When an admin opens an episode:
+
+Disable all editing features.
+
+Admins must NOT be able to:
+
+• edit script dialogues
+• regenerate audio
+• move clips in timeline
+• delete clips
+• change characters
+• modify voices
+• save changes.
+
+---
+
+READ-ONLY UI BEHAVIOR
+
+When admin mode is active:
+
+• Script editor fields become disabled.
+• Audio studio timeline becomes locked.
+• Clip drag-and-drop must be disabled.
+• Regenerate buttons must be hidden.
+• Save buttons must be hidden.
+
+Audio playback controls must remain enabled.
+
+---
+
+AUDIO STUDIO BEHAVIOR
+
+Admins must be able to:
+
+• see all tracks
+• see character tracks
+• see clip placement
+• play clips
+• scrub timeline.
+
+But they must not be able to modify the timeline.
+
+---
+
+DATA LOADING
+
+Ensure admin views load the same data as creator view:
+
+• story metadata
+• episode metadata
+• dialogues
+• characters
+• voice assignments
+• audio clips.
+
+However, UI must enforce read-only mode.
+
+---
+
+PERMISSION CHECK
+
+Implement permission guard:
+
+If user.role == "admin"
+
+Enable read-only view mode.
+
+If user.role == "creator"
+
+Enable full editing features.
+
+---
+
+TESTING
+
+Use the admin account and verify:
+
+1. Admin can open a creator profile.
+2. Admin can open a story.
+3. Admin can view all episodes.
+4. Admin can open an episode.
+5. Audio studio timeline loads.
+6. Admin can play clips.
+7. Admin cannot edit any element.
+
+---
+
+EXPECTED RESULT
+
+After implementation:
+
+• Admins can view stories and episodes.
+• Admins can listen to audio clips inside Audio Studio.
+• Admins cannot modify any content.
+• The entire interface behaves in read-only mode for admins.

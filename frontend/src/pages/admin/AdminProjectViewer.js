@@ -91,31 +91,45 @@ function AdminProjectViewer() {
     return audioContextRef.current;
   }, []);
 
+  // Resolve clip URL to a fetchable URL (mirrors AudioStudio's resolveAudioUrl)
+  const resolveAudioUrl = useCallback((url) => {
+    if (!url) return null;
+    if (url.startsWith('data:')) return url;
+    if (url.startsWith('nhost-file:')) {
+      const fileId = url.replace('nhost-file:', '');
+      return `${process.env.REACT_APP_BACKEND_URL}/api/audio/stream-file/${fileId}`;
+    }
+    return url;
+  }, []);
+
   // Load audio buffer for a clip
   const loadAudioBuffer = useCallback(async (clip) => {
     if (!clip?.url) return null;
     if (audioBuffersRef.current[clip.id]) return audioBuffersRef.current[clip.id];
     const ctx = await ensureAudioContext();
     try {
+      const resolvedUrl = resolveAudioUrl(clip.url);
+      if (!resolvedUrl) return null;
       let arrayBuffer;
-      if (clip.url.startsWith('data:')) {
-        const base64 = clip.url.split(',')[1];
+      if (resolvedUrl.startsWith('data:')) {
+        const base64 = resolvedUrl.split(',')[1];
         const bin = atob(base64);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         arrayBuffer = bytes.buffer;
       } else {
-        const response = await fetch(clip.url);
+        const response = await fetch(resolvedUrl, { credentials: 'include' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         arrayBuffer = await response.arrayBuffer();
       }
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       audioBuffersRef.current[clip.id] = audioBuffer;
       return audioBuffer;
     } catch (err) {
-      console.error(`Failed to load audio for ${clip.id}:`, err);
+      console.warn(`[Admin] Failed to load audio for ${clip.id}:`, err.message);
       return null;
     }
-  }, [ensureAudioContext]);
+  }, [ensureAudioContext, resolveAudioUrl]);
 
   // Preload all clips
   const preloadAllClips = useCallback(async () => {
