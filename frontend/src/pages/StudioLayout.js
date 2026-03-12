@@ -69,12 +69,13 @@ function StudioContent({ story, fetchStory }) {
     return <LoadingScreen message="Loading your studio..." />;
   }
 
-  if (isLoadingEpisode) {
-    return <LoadingScreen message="Loading episode..." />;
-  }
-
   return (
-    <main className="flex-1 overflow-auto">
+    <main className="flex-1 overflow-auto relative">
+      {isLoadingEpisode && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-obsidian/90 backdrop-blur-sm">
+          <LoadingScreen message="Loading episode..." />
+        </div>
+      )}
       <Outlet context={{ story, refreshStory: fetchStory }} />
     </main>
   );
