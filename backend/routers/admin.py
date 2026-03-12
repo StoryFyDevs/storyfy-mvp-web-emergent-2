@@ -1312,3 +1312,58 @@ async def admin_list_clips(
     clips = await ndb.find_many("audio_clips", where if where else None, limit=limit,
                                 order_by={"created_at": "desc"})
     return {"clips": clips, "count": len(clips)}
+
+
+@admin_router.post("/episodes/{episode_id}/regenerate-audio")
+async def admin_regenerate_episode_audio(episode_id: str, authorization: Optional[str] = Header(None)):
+    """Trigger a fresh audio generation run for an episode using its saved script."""
+    await _auth_admin(authorization)
+
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    raw = ep.get("script_content", "")
+    dialogues = []
+    if isinstance(raw, str) and raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                dialogues = parsed
+        except Exception:
+            pass
+
+    if not dialogues:
+        raise HTTPException(status_code=400, detail="No script dialogues found for this episode. Cannot regenerate.")
+
+    # Build voice_map from dialogues
+    voice_map: Dict[str, str] = {}
+    for d in dialogues:
+        cid = d.get("character_id", d.get("character", ""))
+        vid = d.get("voice_id", "")
+        if cid and vid:
+            voice_map[cid] = vid
+
+    import asyncio
+    import uuid
+    from script_compiler import run_generation_job
+
+    job_id = f"admin-regen-{uuid.uuid4().hex[:12]}"
+    user_id = ep.get("created_by", "")
+    story_id = ep.get("story_id", "")
+
+    await ndb.insert_one("script_generation_jobs", {
+        "job_id": job_id,
+        "episode_id": episode_id,
+        "user_id": user_id,
+        "status": "queued",
+        "progress": 0,
+        "total_dialogues": len(dialogues),
+        "completed_dialogues": 0,
+        "error_message": "",
+        "result": {},
+    })
+
+    asyncio.create_task(run_generation_job(job_id, episode_id, user_id, dialogues, voice_map, story_id))
+
+    return {"job_id": job_id, "status": "queued", "total_dialogues": len(dialogues)}
