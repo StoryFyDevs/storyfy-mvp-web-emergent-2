@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
   Shield, LogOut, ArrowLeft, Volume2, VolumeX, Music, Mic2, Zap,
   ZoomIn, ZoomOut, Eye, Play, Pause, Square, SkipBack,
-  AlertTriangle, RefreshCw, FileText, Layers
+  AlertTriangle, FileText, Layers
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Slider } from '../../components/ui/slider';
@@ -34,7 +34,6 @@ function AdminProjectViewer() {
   const [zoom, setZoom] = useState(1);
   const [activeTab, setActiveTab] = useState('timeline');
   const [brokenClips, setBrokenClips] = useState(new Set());
-  const [regenerating, setRegenerating] = useState(false);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -85,23 +84,6 @@ function AdminProjectViewer() {
     navigate('/admin-access/login');
   };
 
-  const handleRegenerate = async () => {
-    if (!window.confirm('This will trigger a fresh audio generation for this episode using the saved script. Continue?')) return;
-    setRegenerating(true);
-    try {
-      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/admin-9821/episodes/${episodeId}/regenerate-audio`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.detail || 'Regeneration failed');
-      toast.success(`Audio regeneration queued (job: ${body.job_id}). Refresh in a few minutes to see updated clips.`);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setRegenerating(false);
-    }
-  };
 
   const project = data?.project_state || {};
   const tracks = useMemo(() => (data?.project_state?.tracks || []), [data]);
@@ -379,17 +361,6 @@ function AdminProjectViewer() {
               </div>
             )}
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRegenerate}
-              disabled={regenerating}
-              className="text-xs border-electric-purple/40 text-electric-purple hover:bg-electric-purple/10 h-7"
-              data-testid="regen-audio-btn"
-            >
-              <RefreshCw className={`w-3 h-3 mr-1 ${regenerating ? 'animate-spin' : ''}`} />
-              {regenerating ? 'Queuing…' : 'Re-generate Audio'}
-            </Button>
 
             <div className="flex items-center gap-1 bg-slate rounded-sm px-2 py-1">
               <Button variant="ghost" size="icon" className="h-7 w-7 text-text-secondary hover:text-white" onClick={handleStop} data-testid="stop-btn">
