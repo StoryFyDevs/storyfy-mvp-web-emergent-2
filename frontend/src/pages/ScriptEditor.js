@@ -58,29 +58,6 @@ function ScriptEditor() {
     };
   }, []);
 
-  // Sync local dirty state to global context
-  useEffect(() => {
-    setIsProjectDirty(dirty);
-  }, [dirty, setIsProjectDirty]);
-
-  // Register handleSaveScript as the save callback for the unsaved changes modal
-  useEffect(() => {
-    registerSaveCallback(handleSaveScript);
-    return () => registerSaveCallback(null);
-  }, [registerSaveCallback, handleSaveScript]);
-
-  // Browser refresh/close guard
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [dirty]);
-
   const getVoiceName = (voiceId) => {
     if (!voiceId) return '';
     const v = voices.find(x => x.voice_id === voiceId);
@@ -167,6 +144,29 @@ function ScriptEditor() {
       setSaving(false);
     }
   }, [selectedEpisode, dialogues, base]);
+
+  // Sync local dirty state to global context
+  useEffect(() => {
+    setIsProjectDirty(dirty);
+  }, [dirty, setIsProjectDirty]);
+
+  // Register handleSaveScript as the save callback for the unsaved changes modal
+  useEffect(() => {
+    registerSaveCallback(handleSaveScript);
+    return () => registerSaveCallback(null);
+  }, [registerSaveCallback, handleSaveScript]);
+
+  // Browser refresh/close guard
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [dirty]);
 
   // ========== DIALOGUE MANAGEMENT ==========
 
