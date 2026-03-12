@@ -1,0 +1,217 @@
+You are fixing two UX issues in the StoryFy creator dashboard.
+
+Do not modify unrelated systems.
+
+---
+
+SYSTEM CONTEXT
+
+StoryFy allows creators to:
+
+• open stories
+• switch between episodes
+• edit scripts
+• generate dialogue audio
+• edit audio clips in the Audio Studio.
+
+The application loads data dynamically from Supabase.
+
+---
+
+PROBLEM 1 — BLANK SCREEN WHEN SWITCHING EPISODES
+
+When switching between episodes inside the **Audio Studio**, the UI briefly goes blank before loading the new episode.
+
+This happens because the loading state is not triggered during episode switching.
+
+Users should **never see an empty screen**.
+
+---
+
+REQUIRED FIX — GLOBAL LOADING DURING EPISODE SWITCH
+
+When a creator switches episodes:
+
+Episode change
+↓
+Trigger loading state
+↓
+Fetch episode data
+↓
+Load clips and timeline
+↓
+Render UI
+
+Implementation requirements:
+
+1. When episode_id changes:
+
+Set global loading state:
+
+isLoadingEpisode = true
+
+2. Display the **global loading screen immediately**.
+
+3. Fetch required data:
+
+• episode data
+• script dialogues
+• audio clips
+• studio timeline.
+
+4. Only after data is ready:
+
+Set:
+
+isLoadingEpisode = false
+
+5. Render the episode UI.
+
+This ensures the user **never sees a blank page**.
+
+---
+
+PROBLEM 2 — UNSAVED DATA LOSS
+
+Creators may lose work if they navigate away from:
+
+• Script Editor
+• Audio Studio
+
+without saving.
+
+Example:
+
+Creator edits script
+↓
+Switches episode or tab
+↓
+Changes are lost.
+
+---
+
+REQUIRED FIX — UNSAVED CHANGES PROTECTION
+
+Implement a **navigation guard** for unsaved data.
+
+---
+
+TRACK UNSAVED CHANGES
+
+Track whether the creator has unsaved changes.
+
+Example:
+
+isProjectDirty = true
+
+This becomes true when:
+
+• script dialogue changes
+• audio clip position changes
+• clip edits occur
+• regeneration modifies clips.
+
+---
+
+NAVIGATION INTERCEPTION
+
+If the creator attempts to:
+
+• switch episode
+• switch tab
+• open another story
+• refresh page
+
+AND
+
+isProjectDirty == true
+
+Show a warning popup.
+
+---
+
+POPUP DESIGN
+
+Display a modal dialog:
+
+Title:
+Unsaved Changes
+
+Message:
+"You have unsaved changes in this project. If you leave now, your changes may be lost."
+
+Buttons:
+
+Save Project
+Discard Changes
+Cancel
+
+---
+
+BUTTON BEHAVIOR
+
+Save Project
+→ triggers save operation
+→ then allows navigation.
+
+Discard Changes
+→ navigation proceeds.
+
+Cancel
+→ stay on current page.
+
+---
+
+BROWSER REFRESH PROTECTION
+
+If the user refreshes the page:
+
+Use browser navigation guard.
+
+Example:
+
+beforeunload event.
+
+Show warning if:
+
+isProjectDirty == true.
+
+---
+
+GLOBAL IMPLEMENTATION
+
+The navigation guard must apply to:
+
+• Script Editor
+• Audio Studio
+• Episode switching
+• Story switching.
+
+---
+
+TESTING
+
+Use the test account:
+
+[test@test.com](mailto:test@test.com)
+password12345
+
+Verify the following:
+
+1. Switching episodes shows loading screen instead of blank UI.
+2. Opening a different episode loads smoothly.
+3. Editing script and switching episode triggers unsaved changes popup.
+4. Clicking "Save Project" saves and navigates correctly.
+5. Clicking "Cancel" keeps user on the same page.
+6. Refreshing browser shows unsaved changes warning.
+
+---
+
+EXPECTED RESULT
+
+After implementation:
+
+• switching episodes never shows blank UI
+• loading screen appears immediately
+• creators are warned before losing unsaved work
+• editing experience becomes safer and smoother.

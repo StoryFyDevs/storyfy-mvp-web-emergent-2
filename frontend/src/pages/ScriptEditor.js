@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
 import { useStudio } from '../contexts/StudioContext';
 import { Button } from '../components/ui/button';
@@ -21,6 +21,9 @@ function ScriptEditor() {
     characters,
     voices,
     selectedEpisode, setSelectedEpisode,
+    requestEpisodeSwitch,
+    setIsProjectDirty,
+    registerSaveCallback,
   } = useStudio();
   const [dialogues, setDialogues] = useState([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -54,6 +57,29 @@ function ScriptEditor() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  // Sync local dirty state to global context
+  useEffect(() => {
+    setIsProjectDirty(dirty);
+  }, [dirty, setIsProjectDirty]);
+
+  // Register handleSaveScript as the save callback for the unsaved changes modal
+  useEffect(() => {
+    registerSaveCallback(handleSaveScript);
+    return () => registerSaveCallback(null);
+  }, [registerSaveCallback, handleSaveScript]);
+
+  // Browser refresh/close guard
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [dirty]);
 
   const getVoiceName = (voiceId) => {
     if (!voiceId) return '';
@@ -121,11 +147,10 @@ function ScriptEditor() {
     }
   };
 
-  const handleSaveScript = async () => {
+  const handleSaveScript = useCallback(async () => {
     if (!selectedEpisode) return;
     setSaving(true);
     try {
-      // Re-index dialogues
       const indexed = dialogues.map((d, i) => ({ ...d, index: i }));
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogues`, {
         method: 'POST', credentials: 'include',
@@ -141,7 +166,7 @@ function ScriptEditor() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [selectedEpisode, dialogues, base]);
 
   // ========== DIALOGUE MANAGEMENT ==========
 
@@ -490,7 +515,7 @@ function ScriptEditor() {
   };
 
   const handleEpisodeSelect = (episode) => {
-    setSelectedEpisode(episode);
+    requestEpisodeSwitch(episode);
   };
 
   const progressPct = genProgress.total > 0 ? Math.round((genProgress.completed / genProgress.total) * 100) : 0;

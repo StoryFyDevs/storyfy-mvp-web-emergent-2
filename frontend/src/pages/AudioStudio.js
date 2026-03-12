@@ -29,6 +29,10 @@ function AudioStudio() {
     episodes, setEpisodes, refreshEpisodes,
     characters,
     selectedEpisode, setSelectedEpisode,
+    setIsLoadingEpisode,
+    setIsProjectDirty,
+    requestEpisodeSwitch,
+    registerSaveCallback,
   } = useStudio();
 
   // ========== CORE STATE ==========
@@ -1579,6 +1583,31 @@ function AudioStudio() {
   }, [selectedEpisode, storyId, newTrackType, tracks, timelineTime, timelineDuration, addClipToTrack, ensureAudioContext, formatTimeShort]);
   
   // ========== EFFECTS ==========
+
+  // Sync isDirty to global project dirty state so StudioContext can intercept navigation
+  useEffect(() => {
+    setIsProjectDirty(isDirty);
+  }, [isDirty, setIsProjectDirty]);
+
+  // Register saveProjectState as the save callback for the unsaved changes modal
+  useEffect(() => {
+    registerSaveCallback(saveProjectState);
+    return () => registerSaveCallback(null);
+  }, [registerSaveCallback, saveProjectState]);
+
+  // Browser refresh/close guard
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  // Episode switching — triggers when selectedEpisode changes
   useEffect(() => {
     const currentEpisodeId = selectedEpisode?.episode_id;
     
@@ -1589,9 +1618,10 @@ function AudioStudio() {
       fetchAudioAssets();
       loadProjectStateAndPendingClips().finally(() => {
         loadingRef.current = false;
+        setIsLoadingEpisode(false);
       });
     }
-  }, [selectedEpisode?.episode_id, fetchAudioAssets, loadProjectStateAndPendingClips]);
+  }, [selectedEpisode?.episode_id, fetchAudioAssets, loadProjectStateAndPendingClips, setIsLoadingEpisode]);
   
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -1894,7 +1924,7 @@ function AudioStudio() {
                 await createEpisode(`Episode ${episodes.length + 1}`);
               } else {
                 const ep = episodes.find(e => e.episode_id === value);
-                setSelectedEpisode(ep);
+                if (ep) requestEpisodeSwitch(ep);
               }
             }}>
               <SelectTrigger className="w-64 bg-slate border-white/10 text-white" data-testid="episode-select">

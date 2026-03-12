@@ -2,19 +2,76 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { ArrowLeft, FileText, Users, Music, Mic2, Globe, FileEdit } from 'lucide-react';
+import { ArrowLeft, FileText, Users, Music, Mic2, Globe, FileEdit, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { StudioProvider, useStudio } from '../contexts/StudioContext';
 import LoadingScreen from '../components/LoadingScreen';
 
+function UnsavedChangesModal() {
+  const { showUnsavedModal, confirmSaveAndSwitch, confirmDiscardAndSwitch, cancelEpisodeSwitch } = useStudio();
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await confirmSaveAndSwitch();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={showUnsavedModal} onOpenChange={(open) => { if (!open) cancelEpisodeSwitch(); }}>
+      <DialogContent className="bg-charcoal border-white/10 text-white max-w-md" data-testid="unsaved-changes-modal">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-space text-warm-gold">Unsaved Changes</DialogTitle>
+        </DialogHeader>
+        <p className="text-text-secondary text-sm mb-6">
+          You have unsaved changes in this project. If you leave now, your changes may be lost.
+        </p>
+        <div className="flex flex-col gap-3">
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 font-semibold"
+            data-testid="unsaved-save-btn"
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {saving ? 'Saving...' : 'Save Project'}
+          </Button>
+          <Button
+            onClick={confirmDiscardAndSwitch}
+            variant="ghost"
+            className="w-full border border-red-500/30 text-red-400 hover:bg-red-500/10"
+            data-testid="unsaved-discard-btn"
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Discard Changes
+          </Button>
+          <Button
+            onClick={cancelEpisodeSwitch}
+            variant="ghost"
+            className="w-full text-text-secondary hover:text-white"
+            data-testid="unsaved-cancel-btn"
+          >
+            Cancel
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function StudioContent({ story, fetchStory }) {
-  const { studioLoading } = useStudio();
+  const { studioLoading, isLoadingEpisode } = useStudio();
 
   if (studioLoading) {
     return <LoadingScreen message="Loading your studio..." />;
   }
 
-  const isPublished = story?.status === 'published';
+  if (isLoadingEpisode) {
+    return <LoadingScreen message="Loading episode..." />;
+  }
 
   return (
     <main className="flex-1 overflow-auto">
@@ -160,6 +217,7 @@ function StudioLayout() {
         </nav>
 
         <StudioContent story={story} fetchStory={fetchStory} />
+        <UnsavedChangesModal />
       </div>
     </StudioProvider>
   );

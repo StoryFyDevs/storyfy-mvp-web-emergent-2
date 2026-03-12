@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 
 const StudioContext = createContext(null);
 
@@ -10,6 +10,19 @@ export function StudioProvider({ children, storyId }) {
   const [ttsSettings, setTtsSettings] = useState(null);
   const [selectedEpisode, setSelectedEpisode] = useState(null);
   const [studioLoading, setStudioLoading] = useState(true);
+
+  // Episode switching loading state
+  const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
+
+  // Unsaved changes tracking (reported by child pages)
+  const [isProjectDirty, setIsProjectDirty] = useState(false);
+
+  // Unsaved changes modal
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+  const pendingEpisodeSwitchRef = useRef(null);
+
+  // Save callback registered by the active page (AudioStudio or ScriptEditor)
+  const saveCallbackRef = useRef(null);
 
   const base = process.env.REACT_APP_BACKEND_URL;
 
@@ -71,6 +84,7 @@ export function StudioProvider({ children, storyId }) {
         if (epData && epData.length > 0) {
           const savedId = localStorage.getItem(`current_episode_${storyId}`);
           const savedEp = savedId ? epData.find(e => e.episode_id === savedId) : null;
+          setIsLoadingEpisode(true);
           setSelectedEpisode(savedEp || epData[0]);
         }
       } catch (err) {
@@ -108,6 +122,62 @@ export function StudioProvider({ children, storyId }) {
     }
   }, [fetchCharactersData]);
 
+  // Register a save callback from the active page
+  const registerSaveCallback = useCallback((fn) => {
+    saveCallbackRef.current = fn;
+  }, []);
+
+  // Safe episode switch — shows unsaved changes modal if there are unsaved changes
+  const requestEpisodeSwitch = useCallback((episode) => {
+    if (!episode) return;
+    if (selectedEpisode?.episode_id === episode.episode_id) return;
+
+    if (isProjectDirty) {
+      pendingEpisodeSwitchRef.current = episode;
+      setShowUnsavedModal(true);
+    } else {
+      setIsLoadingEpisode(true);
+      setSelectedEpisode(episode);
+    }
+  }, [selectedEpisode?.episode_id, isProjectDirty]);
+
+  // Save first, then switch
+  const confirmSaveAndSwitch = useCallback(async () => {
+    if (saveCallbackRef.current) {
+      try {
+        await saveCallbackRef.current();
+      } catch (e) {
+        console.error('[StudioContext] Save before switch failed:', e);
+      }
+    }
+    const pending = pendingEpisodeSwitchRef.current;
+    pendingEpisodeSwitchRef.current = null;
+    setShowUnsavedModal(false);
+    setIsProjectDirty(false);
+    if (pending) {
+      setIsLoadingEpisode(true);
+      setSelectedEpisode(pending);
+    }
+  }, []);
+
+  // Discard changes and switch
+  const confirmDiscardAndSwitch = useCallback(() => {
+    const pending = pendingEpisodeSwitchRef.current;
+    pendingEpisodeSwitchRef.current = null;
+    setShowUnsavedModal(false);
+    setIsProjectDirty(false);
+    if (pending) {
+      setIsLoadingEpisode(true);
+      setSelectedEpisode(pending);
+    }
+  }, []);
+
+  // Stay on current page
+  const cancelEpisodeSwitch = useCallback(() => {
+    pendingEpisodeSwitchRef.current = null;
+    setShowUnsavedModal(false);
+  }, []);
+
   return (
     <StudioContext.Provider value={{
       episodes,
@@ -122,6 +192,21 @@ export function StudioProvider({ children, storyId }) {
       studioLoading,
       refreshEpisodes,
       refreshCharacters,
+      // Episode loading
+      isLoadingEpisode,
+      setIsLoadingEpisode,
+      // Safe episode switching
+      requestEpisodeSwitch,
+      // Dirty state
+      isProjectDirty,
+      setIsProjectDirty,
+      // Unsaved modal
+      showUnsavedModal,
+      confirmSaveAndSwitch,
+      confirmDiscardAndSwitch,
+      cancelEpisodeSwitch,
+      // Save callback registration
+      registerSaveCallback,
     }}>
       {children}
     </StudioContext.Provider>
