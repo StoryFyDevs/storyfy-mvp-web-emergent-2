@@ -393,6 +393,7 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
     user = await ndb.find_one("user_profiles", {"user_id": story.get("created_by", "")}) if story else None
 
     import json as _json
+    import re as _re
 
     project_state = episode.get("project_state", {})
     if isinstance(project_state, str):
@@ -400,6 +401,71 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
             project_state = _json.loads(project_state)
         except:
             project_state = {}
+
+    # --- Refresh stale clip URLs from audio_clips table ---
+    # The project_state may have old Nhost UUID URLs. We look up the latest
+    # active audio for each dialogue_index from the audio_clips table and
+    # patch any clip whose URL would 404.
+    try:
+        active_clips = await ndb.find_many(
+            "audio_clips",
+            {"episode_id": {"_eq": episode_id}, "is_active": {"_eq": True}},
+            limit=500,
+        )
+        # Log existing clip URLs for diagnosis
+        if isinstance(project_state, dict):
+            for t in project_state.get("tracks", []):
+                for c in t.get("clips", []):
+                    logger.info(f"  project_state clip id={c.get('id','')} url={str(c.get('url',''))[:80]}")
+        logger.info(f"admin_project {episode_id}: found {len(active_clips)} active audio_clips")
+
+        def _is_stale(url: str) -> bool:
+            if not url:
+                return False
+            if "nhost.run" in url or "nhost.io" in url:
+                return True
+            if url.startswith("nhost-file:"):
+                return "/" not in url[len("nhost-file:"):]
+            return False
+
+        # Build map: dialogue_index -> audio_url (only valid non-stale URLs)
+        active_map: Dict[int, str] = {}
+        for ac in active_clips:
+            idx = ac.get("dialogue_index")
+            url = ac.get("audio_url", "")
+            if idx is not None and url and not _is_stale(url):
+                active_map[int(idx)] = url
+                url_preview = url[:60] if len(url) > 60 else url
+                logger.info(f"  dialogue[{idx}] valid url={url_preview}")
+            elif idx is not None:
+                logger.info(f"  dialogue[{idx}] skipped stale url={str(url)[:60]}")
+
+        if active_map and isinstance(project_state, dict):
+            tracks = project_state.get("tracks", [])
+            for track in tracks:
+                refreshed = []
+                for clip in track.get("clips", []):
+                    clip_url = clip.get("url", "")
+                    # Detect stale URL: nhost-file: prefix with a bare UUID (no slash)
+                    is_stale = False
+                    if clip_url.startswith("nhost-file:"):
+                        file_id = clip_url[len("nhost-file:"):]
+                        if "/" not in file_id:
+                            is_stale = True
+                    # Try to extract dialogue_index from clip ID (e.g. "scrclip-1773325441393-0")
+                    if is_stale or not clip_url:
+                        clip_id = clip.get("id", "")
+                        dial_idx = None
+                        m = _re.search(r"-(\d+)$", clip_id)
+                        if m:
+                            dial_idx = int(m.group(1))
+                        if dial_idx is not None and dial_idx in active_map:
+                            clip = dict(clip)
+                            clip["url"] = active_map[dial_idx]
+                    refreshed.append(clip)
+                track["clips"] = refreshed
+    except Exception as _e:
+        logger.warning(f"audio_clips refresh failed for {episode_id}: {_e}")
 
     # Parse structured dialogues from script_content
     dialogues = []
