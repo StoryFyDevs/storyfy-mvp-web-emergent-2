@@ -1,0 +1,141 @@
+{
+  "summary": "Admin Panel Usage Fix - All tests passed. Backend (14 tests) 100% pass rate. Frontend UI verified for Admin Dashboard with Per-Creator Usage table, Admin Creators page with usage columns & detail dialog, and Creator Dashboard with usage bar.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "ElevenLabs Sync Status",
+        "issues": ["Shows MISMATCH status (local=22 vs API=0) - This is expected since ElevenLabs API returns 0 but we have 22 local chars. The discrepancy tracking is working correctly."]
+      }
+    ]
+  },
+  "test_results": {
+    "backend_tests": {
+      "total": 14,
+      "passed": 14,
+      "failed": 0,
+      "details": {
+        "TestAuthSetup": {
+          "test_admin_login_success": "PASSED",
+          "test_creator_login_success": "PASSED"
+        },
+        "TestAdminListUsersWithUsageData": {
+          "test_users_endpoint_returns_usage_fields": "PASSED - All users have total_credits_used, total_audio_seconds, total_generations, total_storage_used",
+          "test_storyfy_user_has_correct_usage": "PASSED - StoryFy: 22 credits used, 1 generation, 2.38 audio seconds"
+        },
+        "TestAdminUserSummaries": {
+          "test_returns_all_9_creators": "PASSED - Returns 9 creators (admin excluded)",
+          "test_summaries_have_required_fields": "PASSED - user_id, user_email, user_name, limits_remaining, total_credits_used, etc.",
+          "test_storyfy_in_summaries_with_correct_usage": "PASSED - 22 credits, 1 generation"
+        },
+        "TestAdminCreatorUsageDetail": {
+          "test_returns_detailed_usage": "PASSED - Returns by_type breakdown and recent_generations",
+          "test_storyfy_detail_correct_values": "PASSED - by_type=[{type: voice, count: 1, credits: 22}], 1 recent generation",
+          "test_nonexistent_user_returns_404": "PASSED"
+        },
+        "TestCreatorUsageMe": {
+          "test_returns_user_usage_summary": "PASSED - Returns limits_remaining, storage_used_mb, total_credits_used, total_generations",
+          "test_unauthorized_returns_401": "PASSED"
+        },
+        "TestDataConsistency": {
+          "test_creator_usage_me_matches_admin_view": "PASSED - Creator and admin see identical usage data",
+          "test_admin_users_list_matches_user_summaries": "PASSED - /users and /usage/user-summaries return same StoryFy usage"
+        }
+      }
+    },
+    "frontend_tests": {
+      "admin_dashboard": {
+        "login": "PASSED - Admin login with admin@admin.com/admin123 works",
+        "platform_overview": "PASSED - Shows Total Users (10), Creators (9), Stories (8), Episodes (7)",
+        "realtime_usage": "PASSED - Shows 22 credits used, 0.04 audio minutes, 0 MB storage, 6 active alerts",
+        "type_breakdown": "PASSED - Shows VOICE: 1 gens / 22 credits",
+        "elevenlabs_sync_status": "PASSED - Shows Local: 22 chars | API: 0 chars | Limit: 0 | Diff: 2200% — MISMATCH",
+        "per_creator_usage_table": "PASSED - 9 rows with columns: Creator, Credits Used, Credits Left, Audio (min), Generations, Storage, Failed",
+        "storyfy_in_table": "PASSED - Shows 22 credits used, 978 credits left, 0.0 audio min, 1 generation",
+        "auto_refresh_30s": "PASSED - setInterval with 30000ms confirmed in code"
+      },
+      "admin_creators_page": {
+        "page_load": "PASSED - /admin-access/creators loads correctly",
+        "table_columns": "PASSED - User, Status, Credits Left, Credits Used, Audio (min), Generations, Storage, Actions",
+        "storyfy_row": "PASSED - Shows 978 credits left, 22 credits used, 0.0 audio min, 1 generation, 0.0 MB storage",
+        "usage_button": "PASSED - Opens detail dialog when clicked",
+        "usage_detail_dialog": "PASSED - Shows Credits Used, Credits Left, Audio Minutes, Storage, Total Generations, by_type breakdown"
+      },
+      "creator_dashboard": {
+        "login": "PASSED - testapi@test.com/password123 works",
+        "usage_summary_bar": "PASSED - Shows Credits and Storage progress bars",
+        "credits_bar": "PASSED - Shows 0 / 1,550 chars",
+        "storage_bar": "PASSED - Shows 0 / 500 MB",
+        "credits_remaining": "PASSED - Shows Left: 1,550 (cyan color)",
+        "generations_count": "PASSED - Shows Gens: 0"
+      }
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_usage_fix.py",
+    "/app/test_reports/pytest/admin_usage_fix_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin_list_users() correctly joins user_usage_summary for usage data",
+    "admin_user_usage_summaries() correctly starts from users collection to return ALL 9 creators",
+    "admin_creator_usage_detail() correctly aggregates from generation_usage_logs with by_type breakdown",
+    "Data consistency verified: /api/usage/me matches admin view for same user",
+    "30-second auto-refresh correctly implemented via setInterval in AdminDashboard.js"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin_usage_fix.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "100% (all UI tests passed)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin123",
+    "creator_email": "testapi@test.com",
+    "creator_password": "password123",
+    "storyfy_email": "storyfydevelopment@gmail.com",
+    "storyfy_user_id": "user_c831d163ff18"
+  },
+  "seed_data_creation": "None - Using existing StoryFy user data (22 credits used, 1 voice generation)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin Panel Usage Fix verified. Key endpoints: GET /api/admin-9821/users (includes usage data per user), GET /api/admin-9821/usage/user-summaries (returns ALL 9 creators), GET /api/admin-9821/creators/{user_id}/usage (detailed per-creator with by_type and recent_generations), GET /api/usage/me (creator's own usage). StoryFy user (user_c831d163ff18, storyfydevelopment@gmail.com) has 22 credits used, 1 voice generation, 978 credits remaining. Data consistency between admin and creator views confirmed. AdminDashboard.js has 30s auto-refresh via setInterval.",
+  "api_endpoints_verified": [
+    {"method": "GET", "path": "/api/admin-9821/users", "status": "WORKING - includes total_credits_used, total_audio_seconds, total_generations, total_storage_used per user"},
+    {"method": "GET", "path": "/api/admin-9821/usage/user-summaries", "status": "WORKING - returns ALL 9 creators with usage data"},
+    {"method": "GET", "path": "/api/admin-9821/creators/{user_id}/usage", "status": "WORKING - detailed usage with by_type and recent_generations"},
+    {"method": "GET", "path": "/api/usage/me", "status": "WORKING - creator's own usage summary"}
+  ],
+  "features_verified": {
+    "admin_users_with_usage": "Each user in /admin-9821/users has total_credits_used, total_audio_seconds, total_generations, total_storage_used fields",
+    "admin_user_summaries_all_creators": "Returns ALL 9 creators, not just those with usage entries",
+    "admin_creator_detail": "Returns by_type breakdown and recent_generations list",
+    "data_consistency": "Creator's /api/usage/me matches admin's view in /api/admin-9821/creators/{id}/usage",
+    "admin_dashboard_per_creator_table": "Shows all 9 creators with usage columns",
+    "admin_creators_usage_columns": "Table shows Credits Left, Credits Used, Audio (min), Generations, Storage",
+    "admin_creators_usage_dialog": "Usage button opens detail dialog with credits, audio, storage, by-type, recent generations",
+    "creator_dashboard_usage_bar": "Shows Credits and Storage progress bars, credits remaining, generation count",
+    "auto_refresh_30s": "AdminDashboard auto-refreshes every 30 seconds"
+  },
+  "storyfy_user_verification": {
+    "user_id": "user_c831d163ff18",
+    "email": "storyfydevelopment@gmail.com",
+    "name": "StoryFy",
+    "total_credits_used": 22,
+    "total_generations": 1,
+    "total_audio_seconds": 2.38,
+    "limits_remaining": 978,
+    "verified_in_admin_users": true,
+    "verified_in_user_summaries": true,
+    "verified_in_creator_detail": true,
+    "verified_in_admin_dashboard_table": true,
+    "verified_in_creators_page_table": true
+  }
+}

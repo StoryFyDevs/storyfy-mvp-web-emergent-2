@@ -1,0 +1,62 @@
+{
+  "summary": "Tested audio streaming endpoint fix for expired Nhost Storage presigned URLs. All 14 backend tests passed. Frontend Audio Studio and Script Editor pages load correctly with audio clips and playback controls.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_audio_streaming.py",
+    "/app/test_reports/pytest/audio_streaming_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GET /api/audio/stream-file/{file_id} correctly returns valid WAV audio (Content-Type: audio/wav, starts with RIFF header)",
+    "Streaming endpoint correctly returns 404 for nonexistent file IDs",
+    "Streaming endpoint does NOT require auth headers (uses server-side admin secret) - correct for audio playback",
+    "script_compiler._upload_wav_to_storage returns 'nhost-file:{file_id}' format per the fix",
+    "Frontend resolveAudioUrl() in AudioStudio.js correctly handles nhost-file: format, legacy presigned URLs, and base64 data URLs"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_audio_streaming.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "100% (Script Editor and Audio Studio verified)"
+  },
+  "test_credentials": {
+    "email": "testuser@test.com",
+    "password": "password123"
+  },
+  "seed_data_creation": "Used existing test story_45f8bef2c25c with 10 audio clips and episode ep_71379fe1575a",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Audio streaming fix verified. Routes are /studio/:storyId/script and /studio/:storyId/audio. Backend test file test_audio_streaming.py covers streaming endpoint validation, content-type verification, WAV data validation, 404 handling, and URL format documentation.",
+  "features_tested": {
+    "backend": [
+      "GET /api/audio/stream-file/{file_id} returns HTTP 200 for valid file_id (e50c796e-cb7e-4c52-9fd0-fb2017046d8b)",
+      "GET /api/audio/stream-file/{file_id} returns Content-Type: audio/wav header",
+      "GET /api/audio/stream-file/{file_id} returns valid WAV audio data (RIFF/WAVE header, ~146KB)",
+      "GET /api/audio/stream-file/nonexistent-id returns 404",
+      "Streaming endpoint works without Authorization header (server-side admin secret auth)",
+      "GET /api/script/{episode_id}/dialogues returns dialogue structure",
+      "GET /api/script/job/{job_id}/status returns 404 for nonexistent jobs",
+      "Backend health check passes"
+    ],
+    "frontend": [
+      "Script Editor loads at /studio/:storyId/script with dialogues, characters, and Generate Audio button",
+      "Audio Studio loads at /studio/:storyId/audio with multi-track DAW interface",
+      "Audio clips display with waveforms (Jyoti_01, Jyoti_03, Rohan_02, etc.)",
+      "Project loaded notification shows 'v15 (10 clips)'",
+      "Playback controls (Play, Stop, Skip back) are present",
+      "Master volume control at 75%",
+      "Timeline with time markers visible"
+    ]
+  },
+  "known_valid_file_id": "e50c796e-cb7e-4c52-9fd0-fb2017046d8b",
+  "rca_of_the_issue": "Root cause was confirmed: presigned Nhost Storage URLs expire (HTTP 400, x-error: signature already expired). Fix implemented: 1) Backend returns 'nhost-file:{file_id}' instead of presigned URLs, 2) New streaming endpoint /api/audio/stream-file/{file_id} proxies audio with server-side admin secret auth, 3) Frontend resolveAudioUrl() converts nhost-file: references and legacy expired presigned URLs to the streaming endpoint URL."
+}

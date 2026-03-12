@@ -1,0 +1,119 @@
+{
+  "summary": "Complete testing of Gemini 30 Voices Upgrade - 16/16 backend tests PASSED, Admin Dashboard UI PASSED (voice table with technical details), Creator VoiceGenerator UI PASSED (grouped dropdown with Indian names and categories)",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "backend_tests": {
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "test_classes": {
+        "TestAuthentication": {
+          "test_admin_login": "PASSED",
+          "test_creator_login": "PASSED"
+        },
+        "TestSetGeminiActive": {
+          "test_switch_to_gemini": "PASSED"
+        },
+        "TestCreatorTTSSettings": {
+          "test_returns_30_voices": "PASSED - GET /api/tts/settings returns exactly 30 voices",
+          "test_voices_have_indian_display_names": "PASSED - All voices have Indian names (Aarohi, Arjun, Kabir, etc.)",
+          "test_voices_have_tone_labels": "PASSED - All voices have tone labels (Soft Storyteller, Deep & Resonant, etc.)",
+          "test_voices_have_gender": "PASSED - All voices have Male/Female gender",
+          "test_voices_have_categories": "PASSED - All voices have category and category_label",
+          "test_voice_categories_mapping_returned": "PASSED - voiceCategories map returned with 5 categories"
+        },
+        "TestCreatorVoicesEndpoint": {
+          "test_returns_30_voices": "PASSED - GET /api/voices returns 30 voices",
+          "test_voice_ids_are_original_gemini_names": "PASSED - voice_id contains Achernar through Zubenelgenubi"
+        },
+        "TestAdminVoiceDetails": {
+          "test_returns_provider_and_model": "PASSED - Returns gemini, gemini-2.5-pro-preview-tts, 30 total",
+          "test_returns_30_voices_with_full_details": "PASSED - All voices have voice_id, display_name, gender, tone, category, model, provider",
+          "test_voice_id_is_original_not_display_name": "PASSED - voice_id is Achernar, not Aarohi",
+          "test_admin_sees_model_and_provider_per_voice": "PASSED - Each voice shows model and provider"
+        },
+        "TestCategoryDistribution": {
+          "test_all_categories_have_voices": "PASSED - narrator: 8, deep_voice: 4, energetic: 6, calm: 7, dramatic: 5"
+        }
+      }
+    },
+    "frontend_tests": {
+      "admin_dashboard": {
+        "voice_engine_settings_card": "PASSED - Card visible with Volume2 icon",
+        "alternate_engine_active_badge": "PASSED - Shows 'Alternate Engine Active'",
+        "engine_info_text": "PASSED - Shows 'Alternate Engine: gemini (gemini-2.5-pro-preview-tts)'",
+        "voice_count": "PASSED - Shows '30 voices available'",
+        "show_voices_button": "PASSED - Toggle button expands/collapses table",
+        "voice_table_columns": "PASSED - Voice ID, Display Name, Gender, Tone, Category, Model",
+        "voice_id_monospace_cyan": "PASSED - Voice IDs shown in monospace/cyan (Achernar, Zubenelgenubi)",
+        "display_names_shown": "PASSED - Indian names (Aarohi, Arjun, Aman) visible"
+      },
+      "creator_voice_generator": {
+        "voice_dropdown_trigger": "PASSED - Shows 'Aarohi — Soft Storyteller' format",
+        "category_headers_visible": "PASSED - NARRATOR, DEEP VOICE, ENERGETIC, CALM, DRAMATIC headers",
+        "indian_names_primary": "PASSED - Aarohi, Arjun, Kabir, Tara, Kavya, Zoya, Kiara, Myra visible",
+        "tone_labels_shown": "PASSED - Soft Storyteller, Friendly Narrator, Clear & Crisp, etc.",
+        "sub_label": "PASSED - Shows 'Female voice / Narrator' pattern",
+        "no_technical_ids_visible": "PASSED - Achernar, Zubenelgenubi NOT visible as primary text",
+        "no_model_name_visible": "PASSED - gemini-2.5-pro-preview-tts NOT visible",
+        "style_preset_dropdown": "PASSED - Shows Storytelling preset",
+        "custom_instructions_textarea": "PASSED - Visible with placeholder",
+        "alternate_engine_indicator": "PASSED - 'Alternate engine — style-based voice generation'"
+      }
+    }
+  },
+  "api_endpoints_verified": [
+    {"method": "GET", "path": "/api/tts/settings", "status": "WORKING", "notes": "Returns 30 voices with name, tone, gender, category, category_label when Gemini active"},
+    {"method": "GET", "path": "/api/voices", "status": "WORKING", "notes": "Returns 30 voices with original voice_id (Achernar-Zubenelgenubi)"},
+    {"method": "GET", "path": "/api/admin-9821/voice-settings/voices", "status": "WORKING", "notes": "Returns full technical details: voice_id, display_name, gender, tone, category, model, provider"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_gemini_30_voices.py",
+    "/app/test_reports/pytest/gemini_30_voices_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GEMINI_VOICES_MASTER has all 30 voices with correct metadata (voice_id, gender, tone, category)",
+    "VOICE_DISPLAY_MAP correctly maps all 30 voice_ids to Indian display names and tone labels",
+    "VOICE_CATEGORIES correctly defines 5 categories: narrator, deep_voice, energetic, calm, dramatic",
+    "_build_creator_voices() returns name (display name), tone (tone_label), gender, category, category_label - correct for creator UI",
+    "_build_admin_voices() returns voice_id, display_name, tone (original), gender, category, model, provider - correct for admin technical view",
+    "Frontend VoiceGenerator correctly groups voices by category with uppercase headers",
+    "Frontend voice select trigger shows 'Name — Tone' format correctly",
+    "Frontend sub-label shows 'Gender voice / Category' pattern (e.g., 'Female voice / Narrator')",
+    "Admin dashboard voice table shows technical Voice ID in monospace/cyan color"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gemini_30_voices.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "creator_email": "testapi@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "None - used existing Voice Test Story",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "30 Gemini voices upgrade verified. Backend returns all 30 voices with dual-layer naming: voice_id (Achernar-Zubenelgenubi) for API calls, display names (Aarohi-Aman) for creator UI. Categories (Narrator, Deep Voice, Energetic, Calm, Dramatic) group voices in dropdown. Admin sees full technical table with Voice ID, Display Name, Gender, Tone, Category, Model columns. Creator sees only Indian names and tones, no technical IDs visible.",
+  "verified_requirements": {
+    "30_voices_present": "VERIFIED - All 30 voices from Achernar to Zubenelgenubi",
+    "dual_layer_naming": "VERIFIED - voice_id is original Gemini name, name/display_name is Indian character",
+    "category_grouping": "VERIFIED - 5 categories with correct distribution",
+    "creator_ui_no_technical": "VERIFIED - No model names, provider names, or technical voice IDs visible",
+    "admin_full_technical": "VERIFIED - Voice ID, Display Name, Gender, Tone, Category, Model, Provider visible",
+    "voice_id_for_api": "VERIFIED - voice_id field always contains original Gemini voice name"
+  }
+}

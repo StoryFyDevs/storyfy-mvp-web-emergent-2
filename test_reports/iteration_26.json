@@ -1,0 +1,77 @@
+{
+  "summary": "Tested audio corruption fix in script_compiler.py. All 23 backend tests passed verifying: async httpx usage, WAV validation (size > 1000 bytes + RIFF/WAVE header), retry logic (MAX_RETRIES=2), job deduplication (_active_jobs), sequential generation (for loop with await), and streaming endpoint functionality. Frontend Script Editor and Audio Studio pages load correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_audio_corruption_fix.py",
+    "/app/test_reports/pytest/audio_corruption_fix_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "script_compiler.py uses httpx.AsyncClient for TTS calls - NO sync requests module (verified by grep)",
+    "_validate_wav correctly checks: (1) size > MIN_AUDIO_BYTES (1000), (2) RIFF header at bytes 0-4, (3) WAVE marker at bytes 8-12",
+    "generate_single_dialogue has retry loop: for attempt in range(1, MAX_RETRIES + 1) with 3-second delay between attempts",
+    "run_generation_job prevents concurrent jobs via _active_jobs dict - cancels existing job if same episode_id",
+    "Generation is STRICTLY SEQUENTIAL: for loop with await generate_single_dialogue(), NO asyncio.gather()",
+    "Each dialogue produces independent audio buffer - _pcm_to_wav creates fresh io.BytesIO() per call",
+    "Per-dialogue logging includes dialogue_id (e.g., 'Jyoti_01'), character, text_len, voice, wav_bytes size",
+    "GET /api/audio/stream-file/{file_id} returns valid WAV audio (verified with known file_id e50c796e-cb7e-4c52-9fd0-fb2017046d8b)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_audio_corruption_fix.py"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23 tests passed)",
+    "frontend": "100% (Script Editor and Audio Studio verified)"
+  },
+  "test_credentials": {
+    "email": "testuser@test.com",
+    "password": "password123"
+  },
+  "seed_data_creation": "Used existing test story_45f8bef2c25c with episode ep_71379fe1575a (7 dialogues) and 10 audio clips",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Audio corruption fix verified. Key changes in script_compiler.py: (1) async httpx replaces sync requests, (2) _validate_wav checks size+header, (3) MAX_RETRIES=2 retry loop, (4) _active_jobs prevents concurrent jobs, (5) sequential for-loop (no asyncio.gather). Test file test_audio_corruption_fix.py covers all these without triggering real TTS.",
+  "features_tested": {
+    "backend_code_structure": [
+      "script_compiler uses httpx.AsyncClient (not sync requests) - verified by import check and grep",
+      "_get_tts_client() returns httpx.AsyncClient with 120s timeout",
+      "MAX_RETRIES constant is 2",
+      "MIN_AUDIO_BYTES constant is 1000",
+      "_active_jobs dict exists for job deduplication",
+      "_validate_wav rejects: empty data, size < 1000, missing RIFF header, missing WAVE marker",
+      "_validate_wav accepts valid WAV with RIFF at 0:4 and WAVE at 8:12",
+      "_pcm_to_wav produces valid WAV format",
+      "compute_cache_key is deterministic and produces 32-char hex string",
+      "build_single_speaker_payload includes director_notes in text",
+      "generate_single_dialogue has retry loop with MAX_RETRIES",
+      "run_generation_job uses sequential for-loop (no asyncio.gather)"
+    ],
+    "backend_api": [
+      "POST /api/script/{episode_id}/generate endpoint exists (returns 404 for invalid episode)",
+      "GET /api/script/job/{job_id}/status endpoint exists (returns 404 for nonexistent job)",
+      "GET /api/script/{episode_id}/dialogues endpoint exists",
+      "GET /api/generation/status returns rate limits (can_generate, generations_remaining, daily_limit)",
+      "GET /api/audio/stream-file/{file_id} returns valid WAV audio (HTTP 200, Content-Type: audio/wav, RIFF/WAVE header)",
+      "GET /api/audio/stream-file/nonexistent returns 404"
+    ],
+    "frontend": [
+      "Script Editor loads at /studio/:storyId/script with data-testid='script-editor'",
+      "Script Editor shows Generate Audio button (data-testid='generate-audio-button')",
+      "Script Editor displays dialogues with character assignments (Jyoti, Rohan)",
+      "Audio Studio loads at /studio/:storyId/audio with data-testid='audio-studio'",
+      "Audio Studio loads project with 10 clips ('Project loaded v15 (10 clips)' toast)",
+      "Audio Studio displays multi-track DAW with character tracks (Jyoti Voice, Rohan Voice, Priya Voice)",
+      "Audio clips show waveforms on timeline"
+    ]
+  },
+  "known_valid_file_id": "e50c796e-cb7e-4c52-9fd0-fb2017046d8b",
+  "rca_of_the_issue": "Original audio corruption root causes: (1) sync requests.post() blocking async event loop caused interleaved uploads, (2) No concurrent job protection allowed double-click to create parallel jobs overwriting files, (3) No WAV validation uploaded empty/corrupt TTS responses. Fix implemented: Complete rewrite using async httpx, _validate_wav function, MAX_RETRIES=2 retry loop, _active_jobs dict for episode-level deduplication, strictly sequential for-loop generation."
+}

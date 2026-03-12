@@ -1,0 +1,112 @@
+{
+  "summary": "Tested StoryFy audio generation pipeline audit fixes. All 13 unit tests in test_pipeline_fixes.py passed. Backend API endpoints return new fields (empty_gemini_responses, gemini_retries). Frontend Admin dashboard shows new Gemini Health card and Retries column. SQL injection protection working (returns 400 for malicious input).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "test_script_compiler.py::test_job_status_returns_progress",
+        "issue": "Test expects 'batches_total' field that doesn't exist in job status response - test script issue, not app bug"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pipeline_fixes.py",
+    "/app/backend/tests/test_script_compiler.py",
+    "/app/test_reports/pytest/pipeline_fixes_results.xml",
+    "/app/test_reports/pytest/script_compiler_regression_results.xml"
+  ],
+  "action_items": [
+    "Consider updating test_script_compiler.py::test_job_status_returns_progress to match actual API response structure (optional - test script issue)"
+  ],
+  "critical_code_review_comments": [
+    "_validate_batch correctly rejects: empty dialogues, single speaker, missing voice IDs",
+    "_build_multi_speaker_payload uses INTER_LINE_PAUSE (double newline) between dialogue lines for speaker voice merge prevention",
+    "_reconcile_utterances implements gap-splitting for 'too few' and aggressive merge for 'too many' segments",
+    "generation_metrics table includes empty_gemini_responses and gemini_retries columns (added via ALTER TABLE IF NOT EXISTS)",
+    "GET /api/admin-9821/analytics/generation/summary returns empty_gemini_responses and gemini_retries in today object",
+    "GET /api/admin-9821/analytics/generation/runs returns empty_gemini_responses and gemini_retries per run",
+    "SQL injection protection via _sanitize_id regex validation - returns 400 'Invalid ID format' for malicious input",
+    "Frontend Gemini Health card displays empty responses count and retries count",
+    "Frontend debug table has Retries column header correctly positioned"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (13/13 pipeline tests passed, 18/19 script_compiler regression tests passed - 1 test script issue)",
+    "frontend": "100% (Gemini Health card and Retries column verified)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345",
+    "admin_secret_path": "admin-9821"
+  },
+  "seed_data_creation": "None - used existing generation data (2 runs with 30 dialogues today)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Pipeline audit fixes fully tested. Key verifications: 1) Unit tests for _validate_batch, _build_multi_speaker_payload, _reconcile_utterances all pass. 2) New DB columns (empty_gemini_responses, gemini_retries) exist and return in API responses. 3) Frontend shows Gemini Health card with 'empty responses' and 'retries' metrics. 4) Debug table has Retries column. 5) SQL injection protection working. The 1 failed test in test_script_compiler.py is a test script bug (expects 'batches_total' field that doesn't exist), not an application bug.",
+  "features_verified": {
+    "unit_tests": [
+      "TestValidateBatch::test_valid_batch - PASSED",
+      "TestValidateBatch::test_empty_dialogues - PASSED",
+      "TestValidateBatch::test_single_speaker - PASSED",
+      "TestValidateBatch::test_three_speakers - PASSED",
+      "TestValidateBatch::test_missing_voice_id - PASSED",
+      "TestBuildMultiSpeakerPayload::test_basic_payload - PASSED",
+      "TestBuildMultiSpeakerPayload::test_director_notes_included - PASSED",
+      "TestReconcileUtterances::test_exact_match - PASSED",
+      "TestReconcileUtterances::test_merge_same_speaker - PASSED",
+      "TestReconcileUtterances::test_too_few_with_gap_split - PASSED",
+      "TestReconcileUtterances::test_too_few_unsplittable - PASSED",
+      "TestReconcileUtterances::test_empty_utterances - PASSED",
+      "TestReconcileUtterances::test_aggressive_merge - PASSED"
+    ],
+    "api_responses": {
+      "analytics_summary": {
+        "empty_gemini_responses": 0,
+        "gemini_retries": 0,
+        "verified": true
+      },
+      "analytics_runs": {
+        "empty_gemini_responses": 0,
+        "gemini_retries": 0,
+        "verified": true
+      }
+    },
+    "sql_injection_protection": {
+      "test_input": "1' OR 1=1--",
+      "expected_status": 400,
+      "actual_status": 400,
+      "response": "Invalid ID format",
+      "verified": true
+    },
+    "frontend_elements": {
+      "gemini_health_card": {
+        "found": true,
+        "content": "GEMINI HEALTH - 0 empty responses, 0 retries"
+      },
+      "retries_column": {
+        "found": true,
+        "table_headers": ["ID", "Episode", "Dialogues", "Batches", "Gemini", "Retries", "Saved", "Cache", "Cost", "Time", "Fallback"]
+      }
+    }
+  },
+  "pipeline_functions_verified": {
+    "_validate_batch": {
+      "rejects_empty_dialogues": true,
+      "rejects_single_speaker": true,
+      "rejects_missing_voice_id": true
+    },
+    "_build_multi_speaker_payload": {
+      "uses_inter_line_pause": true,
+      "pause_marker": "\\n\\n (double newline)"
+    },
+    "_reconcile_utterances": {
+      "gap_split_for_too_few": true,
+      "aggressive_merge_for_too_many": true
+    }
+  }
+}

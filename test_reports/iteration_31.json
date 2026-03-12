@@ -1,0 +1,73 @@
+{
+  "summary": "Tested pipeline Issue 1 (Deepgram empty utterances fix) and Issue 2 (incorrect batching fix). All 56 tests passed (24 test_pipeline_issues_fix.py + 32 test_speaker_pair_batching.py). Both fixes verified working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pipeline_issues_fix.py",
+    "/app/backend/tests/test_speaker_pair_batching.py",
+    "/app/test_reports/pytest/pipeline_issues_fix_results.xml",
+    "/app/test_reports/pytest/speaker_pair_batching_v2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Issue 1 FIX VERIFIED: _build_multi_speaker_payload now inserts <break time='700ms'/> between dialogue lines except the last",
+    "Issue 1 FIX VERIFIED: _ensure_punctuation adds period to text without trailing punctuation (.!?;:), preserves existing punctuation",
+    "Issue 1 FIX VERIFIED: Payload format is 'Speaker: text. <break time=\"700ms\"/>' between lines",
+    "Issue 2 FIX VERIFIED: group_dialogues_by_speaker_pairs uses conversation-block detection algorithm",
+    "Issue 2 FIX VERIFIED: 4 speakers in 2 clear blocks (Devang+Priya then Jyoti+Rohan) produces exactly 2 batches",
+    "Issue 2 FIX VERIFIED: Returning speaker pairs (A+B, C+D, A+B again) merge into same batch",
+    "Issue 2 FIX VERIFIED: pair_key = tuple(sorted([speakerA, speakerB])) is deterministic regardless of who speaks first",
+    "Issue 2 FIX VERIFIED: All batches have max 2 speakers, all dialogues preserved (no loss or duplication)",
+    "Regression PASSED: WAV utilities (_validate_wav, _extract_clip_from_wav) still work",
+    "Regression PASSED: _reconcile_utterances with equal-division fallback respects audio_duration boundary",
+    "Regression PASSED: Backend /api/health returns ok, API endpoints /api/script/{episode_id}/dialogues GET/POST work with auth"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (56/56 tests passed)",
+    "frontend": "100% (login, dashboard loading verified)"
+  },
+  "test_credentials": {
+    "creator_email": "testuser@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345",
+    "test_episode_id": "ep_71379fe1575a",
+    "test_character_id": "char_54270a0d5757"
+  },
+  "seed_data_creation": "None - used existing test data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both pipeline issues fixed and verified. Issue 1: Gemini payload now has punctuation + <break time='700ms'/> tags between dialogue turns for clearer Deepgram diarization. Issue 2: Batching uses conversation-block detection that tracks 2-speaker blocks and merges by deterministic pair_key. All unit tests pass (24 for issues + 32 for regression). API endpoints verified working with auth.",
+  "features_verified": {
+    "issue_1_deepgram_empty_utterances": {
+      "break_tag_insertion": "PASSED - 3 break tags for 4 dialogue lines",
+      "punctuation_enforcement": "PASSED - 'Hello there' becomes 'Hello there.'",
+      "existing_punctuation_preserved": "PASSED - 'Hello!' stays 'Hello!' not 'Hello!.'",
+      "director_notes_with_break": "PASSED - notes and break tags coexist",
+      "single_dialogue_no_break": "PASSED - no break tag when only 1 dialogue"
+    },
+    "issue_2_batching_algorithm": {
+      "4_speakers_2_blocks_2_batches": "PASSED - Devang+Priya(4), Jyoti+Rohan(2) → 2 batches",
+      "returning_speakers_merge": "PASSED - D+P, J+R, D+P → 2 batches (6+2 dialogues)",
+      "pair_key_deterministic": "PASSED - sorted regardless of first speaker",
+      "total_dialogues_preserved": "PASSED - all 6 indices present",
+      "max_2_speakers_per_batch": "PASSED - no batch has >2 speakers",
+      "empty_dialogues": "PASSED - [] → []",
+      "single_speaker": "PASSED - 1 speaker → 1 batch"
+    },
+    "regression_tests": {
+      "wav_utilities": "PASSED - validate_wav, extract_clip work",
+      "reconcile_utterances": "PASSED - equal-division respects audio_duration",
+      "api_health": "PASSED - /api/health returns ok",
+      "api_dialogues": "PASSED - GET/POST work with auth"
+    }
+  }
+}

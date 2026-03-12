@@ -1,0 +1,119 @@
+{
+  "summary": "Complete testing of Character-Based Voice Workflow & Dual Credit System (Iteration 17). 10/10 backend tests PASSED. All frontend features verified: Characters page with Audition panel, VoiceGenerator with character-only mode, Admin CreatorManagement with dual credit columns.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "backend_tests": {
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "test_classes": {
+        "TestDualCreditsEndpoint": {
+          "test_credits_returns_both_generation_and_audition": "PASSED - GET /api/credits returns generation_credits and audition_credits"
+        },
+        "TestAuditionEndpoint": {
+          "test_audition_requires_voice_id_and_text": "PASSED - Validation for required fields",
+          "test_audition_generates_audio_and_deducts_credit": "PASSED - Generates audio, deducts 1 audition credit",
+          "test_audition_cached_call_does_not_deduct_credit": "PASSED - Second call returns cached=true without deducting credit"
+        },
+        "TestAdminAuditionCredits": {
+          "test_admin_users_list_includes_audition_credits": "PASSED - GET /api/admin-9821/users returns audition_credits field",
+          "test_admin_adjust_audition_credits_add": "PASSED - Can add audition credits",
+          "test_admin_adjust_audition_credits_deduct": "PASSED - Can deduct audition credits",
+          "test_admin_cannot_set_negative_audition_credits": "PASSED - Rejects negative balance",
+          "test_admin_audition_credits_requires_admin_auth": "PASSED - Requires admin authentication"
+        },
+        "TestVoicesAndCharacters": {
+          "test_voices_have_indian_display_names_and_categories": "PASSED - 30 voices with Indian names and 5 categories"
+        }
+      }
+    },
+    "frontend_tests": {
+      "characters_page": {
+        "page_loads": "PASSED - /studio/{storyId}/characters loads correctly",
+        "audition_credits_badge": "PASSED - Shows 'Audition: 537' badge at top",
+        "add_character_button": "PASSED - Button present",
+        "audition_panel_visible": "PASSED - Right-side panel with Voice dropdown, Dialogue input, Audition Voice button",
+        "audition_text_empty": "PASSED - Dialogue input is EMPTY by default (no placeholder pre-filled)",
+        "character_list": "PASSED - Shows character 'Alice' with Test Voice button"
+      },
+      "create_character_dialog": {
+        "name_input_only": "PASSED - Only Character Name input present",
+        "voice_dropdown": "PASSED - Voice dropdown with Indian names grouped by category",
+        "no_sliders": "PASSED - NO stability/similarity sliders (simplified creation)",
+        "category_headers": "PASSED - Shows NARRATOR, etc. category headers in dropdown"
+      },
+      "voice_generator_page": {
+        "page_loads": "PASSED - /studio/{storyId}/voice-generator loads correctly",
+        "generation_credits_badge": "PASSED - Shows 'Credits: 1550' badge at top",
+        "character_dropdown_only": "PASSED - Character dropdown (Alice) visible, character is mandatory",
+        "no_direct_voice_select": "PASSED - No voice dropdown on main panel",
+        "no_download_button": "PASSED - 'Download' NOT present anywhere",
+        "push_to_studio_button": "PASSED - 'Generate & Push to Studio' button visible",
+        "directors_notes_label": "PASSED - Sidebar shows 'Director's Notes' (NOT 'Custom Style Instructions')"
+      },
+      "admin_creator_management": {
+        "dual_credit_columns": "PASSED - Table shows GEN CREDITS and AUD CREDITS columns",
+        "limits_dialog_dual_inputs": "PASSED - Dialog shows Generation Credits (1550) and Audition Credits (537) with separate input fields"
+      }
+    }
+  },
+  "api_endpoints_verified": [
+    {"method": "GET", "path": "/api/credits", "status": "WORKING", "notes": "Returns {generation_credits, audition_credits} for authenticated user"},
+    {"method": "POST", "path": "/api/tts/audition", "status": "WORKING", "notes": "Generates audio in Hindi, deducts audition credit, caches result. Cached calls return cached=true"},
+    {"method": "POST", "path": "/api/admin-9821/users/audition-credits", "status": "WORKING", "notes": "Admin can adjust audition credits (+/-)"},
+    {"method": "GET", "path": "/api/admin-9821/users", "status": "WORKING", "notes": "Returns audition_credits field for each user"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_audition_credits_system.py",
+    "/app/test_reports/pytest/audition_credits_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GET /api/credits correctly returns both generation_credits and audition_credits from user document",
+    "POST /api/tts/audition implements SHA256 caching based on voice_id:text combo, deducts credits only for new generations",
+    "Admin audition-credits endpoint correctly validates balance cannot go negative",
+    "Characters page audition panel text input is correctly empty by default (not pre-filled with placeholder)",
+    "VoiceGenerator correctly enforces character-only mode - no direct voice selection possible",
+    "Director's Notes label correctly renamed from Custom Style Instructions in sidebar",
+    "Download button successfully removed - only Push to Studio available"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_audition_credits_system.py"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 tests passed)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "creator_email": "testapi@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "None - used existing Voice Test Story (story_2ea34eb172ac) with character 'Alice'",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Major voice workflow refactor verified. Character-based workflow enforced - voice generation only through characters. Dual credit system (generation_credits + audition_credits) working. Audition endpoint uses Gemini and generates Hindi audio, results are cached. Create Character dialog simplified to name+voice only (no sliders). VoiceGenerator shows only character dropdown. 'Director's Notes' is the new label for style instructions in alternate engine mode. Download button removed, only Push to Studio remains. Admin can view/modify both credit types in Creators page.",
+  "verified_requirements": {
+    "dual_credit_system": "VERIFIED - generation_credits and audition_credits returned by /api/credits",
+    "audition_endpoint": "VERIFIED - POST /api/tts/audition generates Hindi audio, deducts credit, caches",
+    "audition_caching": "VERIFIED - Repeated calls with same voice_id+text return cached=true",
+    "admin_audition_credits": "VERIFIED - POST /api/admin-9821/users/audition-credits works",
+    "admin_users_list": "VERIFIED - GET /api/admin-9821/users returns audition_credits field",
+    "characters_page_audition_panel": "VERIFIED - Voice dropdown, empty text input, Audition Voice button",
+    "characters_page_simplified_creation": "VERIFIED - Only name input + voice dropdown (no sliders)",
+    "voice_generator_character_only": "VERIFIED - Only character dropdown, no direct voice selection",
+    "no_download_button": "VERIFIED - Download removed, only Push to Studio",
+    "directors_notes_label": "VERIFIED - Renamed from Custom Style Instructions",
+    "admin_dual_credit_columns": "VERIFIED - GEN CREDITS and AUD CREDITS columns visible",
+    "admin_dual_credit_dialog": "VERIFIED - Separate inputs for generation and audition amounts"
+  }
+}

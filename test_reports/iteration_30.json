@@ -1,0 +1,101 @@
+{
+  "summary": "Tested StoryFy pipeline batching rewrite and segmentation fix. All 38 tests passed (19 in test_pipeline_fixes.py + 19 in test_script_compiler.py). Global speaker pair batching correctly groups by unique pairs regardless of script position. Safe equal-division segmentation ensures timestamps never exceed audio_duration.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pipeline_fixes.py",
+    "/app/backend/tests/test_script_compiler.py",
+    "/app/test_reports/pytest/pipeline_fixes_v2_results.xml",
+    "/app/test_reports/pytest/script_compiler_v2_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "group_dialogues_by_speaker_pairs: Forward-looking pair detection algorithm correctly implemented - scans ahead for conversation partner, falls back to looking back at script end",
+    "pair_key = tuple(sorted([speakerA, speakerB])) ensures deterministic batching regardless of who speaks first",
+    "All dialogues from same 2-speaker pair merged into single batch via dictionary grouping",
+    "_reconcile_utterances: Safe equal-division fallback at line 747: end_t = min(start_t + seg_len, audio_duration) prevents timestamps exceeding duration",
+    "Returns None when audio_duration=0 and fewer segments received (triggers per-dialogue fallback)",
+    "smart_format=true parameter added to Deepgram API call at line 410"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (38/38 tests passed)",
+    "frontend": "N/A - backend only testing"
+  },
+  "test_credentials": {
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345",
+    "admin_secret_path": "admin-9821",
+    "creator_email": "testuser@test.com",
+    "creator_password": "password123"
+  },
+  "seed_data_creation": "None - used existing test data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Pipeline batching rewrite fully verified. Key test cases: 1) User test case (Devang+Priya 4 lines, Jyoti+Rohan 4 lines → exactly 2 batches) PASSED. 2) Interleaved conversations still produce 2 batches. 3) pair_key is deterministic (sorted). 4) Single speaker → 1 batch. 5) Segmentation equal-division timestamps never exceed audio_duration (tested with 13.53s, 12.0s, 10.0s). 6) Without audio_duration, returns None for too-few segments. Admin analytics endpoint working with new tracking fields.",
+  "features_verified": {
+    "batching_algorithm": {
+      "test_user_test_case": "PASSED - 8 dialogues (2 pairs) → 2 batches",
+      "test_interleaved_conversations": "PASSED - interleaved still produces 2 batches",
+      "test_speaker_reuse_batching": "PASSED - same pair appearing multiple times → 1 batch",
+      "test_pair_key_deterministic": "PASSED - sorted key regardless of who speaks first",
+      "test_single_speaker": "PASSED - 1 speaker → 1 batch with 1 speaker",
+      "test_empty_input": "PASSED - [] → []",
+      "test_single_dialogue": "PASSED - 1 dialogue → 1 batch"
+    },
+    "segmentation_algorithm": {
+      "test_exact_match": "PASSED - utterance count matches expected",
+      "test_merge_same_speaker": "PASSED - adjacent same-speaker merged",
+      "test_equal_division_for_fewer_segments": "PASSED - Deepgram 1 segment, need 4 → equal division",
+      "test_equal_division_timestamps_are_correct": "PASSED - 12.0s / 4 = 3.0s per segment",
+      "test_timestamps_never_exceed_duration": "PASSED - 10.0s / 7 segments, all ≤ 10.0s",
+      "test_aggressive_merge_too_many": "PASSED - 5 utterances, need 3 → merged to 3",
+      "test_empty_utterances": "PASSED - [] → None",
+      "test_no_audio_duration_falls_back": "PASSED - audio_duration=0 → returns None"
+    },
+    "api_tests": {
+      "script_dialogues_save": "4/4 PASSED",
+      "script_dialogues_load": "3/3 PASSED",
+      "script_generate_audio": "4/4 PASSED",
+      "script_job_status": "3/3 PASSED",
+      "admin_batch_size_config": "2/2 PASSED",
+      "characters_episodes_exist": "3/3 PASSED"
+    },
+    "deepgram_params": {
+      "smart_format": "true (verified at line 410)"
+    },
+    "admin_analytics": {
+      "endpoint": "/api/admin-9821/analytics/generation/summary",
+      "status": "working",
+      "sample_data": {
+        "total_dialogues": 45,
+        "gemini_calls_used": 19,
+        "gemini_calls_saved": 4,
+        "cache_hit_rate": 53.3,
+        "empty_gemini_responses": 0,
+        "gemini_retries": 0
+      }
+    }
+  },
+  "algorithm_verification": {
+    "batching": {
+      "method": "Forward-looking pair detection with global merge",
+      "pair_key_formula": "tuple(sorted([speakerA, speakerB]))",
+      "handles_interleaved": true,
+      "handles_single_speaker": true
+    },
+    "segmentation": {
+      "method": "Equal-division fallback when Deepgram returns fewer segments",
+      "timestamp_clamping": "end_t = min(start_t + seg_len, audio_duration)",
+      "prevents_timestamp_overflow": true,
+      "requires_audio_duration": true
+    }
+  }
+}

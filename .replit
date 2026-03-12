@@ -1,0 +1,78 @@
+modules = ["python-3.12", "nodejs-20", "web"]
+[agent]
+expertMode = true
+integrations = ["github:1.0.0"]
+
+[nix]
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend API"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm start"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow]]
+name = "Backend API"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd backend && uvicorn server:app --host 0.0.0.0 --port 8000"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 3000
+externalPort = 3000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
+[deployment]
+deploymentTarget = "static"
+build = ["bash", "-c", "cd frontend && npm run build"]
+publicDir = "frontend/build"
+
+[userenv]
+
+[userenv.shared]
+NHOST_SUBDOMAIN = "hybvrxpirbjtifwmbeyt"
+NHOST_REGION = "ap-south-1"
+REACT_APP_NHOST_SUBDOMAIN = "hybvrxpirbjtifwmbeyt"
+REACT_APP_NHOST_REGION = "ap-south-1"
+SUPABASE_URL = "https://kuophclrijrriufdzbks.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1b3BoY2xyaWpycml1ZmR6YmtzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMjI0NTYsImV4cCI6MjA4ODg5ODQ1Nn0.m58wTokIcof7hIG6knD3N4-APi5Z8MQ-p3jNthRA2Lw"
+SUPABASE_BUCKET_AUDIO = "storyfy-audio"
+SUPABASE_BUCKET_CACHE = "storyfy-cache"
+SUPABASE_BUCKET_EXPORTS = "storyfy-exports"
+SUPABASE_ACCESS_TOKEN = "sbp_71940d208ab82f568f13c32db5ec5d2378150e95"

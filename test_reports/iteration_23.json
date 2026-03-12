@@ -1,0 +1,90 @@
+{
+  "summary": "Script Compiler 5-Gap Fixes Validation (Iteration 23). Tested all 5 fixes from the audit: (1) batch_size enforcement in batching logic - PASS via unit tests, (2) Nhost Storage uploads - PASS, (3) CharacterName_Index.wav naming - PASS, (4) removed_clips in API response - PASS, (5) per-character track format in frontend - PASS via code review. Backend API generation working correctly with Nhost Storage. Frontend code correctly implements per-character track handling and removed_clips processing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin-9821/generation/limits", "issue": "batch_size not exposed in GET response - value is used internally but not returned to frontend", "priority": "LOW"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Frontend E2E testing", "issue": "CORS issue prevents localhost:3000 from accessing api-shield-8.preview.emergentagent.com with credentials", "affected_selectors": [], "notes": "Frontend code review verified implementations are correct"}
+    ],
+    "design_issues": []
+  },
+  "test_results": {
+    "gap_1_batch_size_enforcement": {
+      "unit_test_batching_respects_max_batch_size": "PASS - 15 dialogues with max_batch_size=5 creates 3 batches, max_batch_size=10 creates 2 batches",
+      "unit_test_batching_respects_speaker_limit": "PASS - Max 2 speakers per batch enforced",
+      "internal_usage": "PASS - script_compiler.get_batch_size() correctly reads from system_settings and uses it in batching"
+    },
+    "gap_2_nhost_storage_uploads": {
+      "test_audio_uploaded_to_nhost": "PASS - audio_url is Nhost Storage presigned URL, not base64"
+    },
+    "gap_3_filename_format": {
+      "test_filename_character_index_format": "PASS - filename='Jyoti_01.wav' follows CharacterName_Index.wav pattern"
+    },
+    "gap_4_removed_clips_tracking": {
+      "test_removed_clips_in_response": "PASS - 'removed_clips' array present in generate response",
+      "test_removed_clips_empty_when_no_deletions": "PASS - Returns empty array when no dialogues deleted"
+    },
+    "gap_5_per_character_tracks": {
+      "cache_behavior": "PASS - Second generation of same dialogue returns cached=true",
+      "character_name_in_results": "PASS - character_name='Jyoti' in result",
+      "frontend_code_review": {
+        "ScriptEditor.pushClipsToTimeline": "PASS - Groups clips by character, creates {characterName, clips} format",
+        "AudioStudio.loadProjectStateAndPendingClips": "PASS - Detects isPerCharacterFormat, creates per-character tracks",
+        "AudioStudio.removed_clips_handling": "PASS - Reads removed_clips_{storyId} from localStorage, filters matching clips"
+      }
+    }
+  },
+  "api_endpoints_verified": [
+    {"method": "POST", "path": "/api/script/{episode_id}/generate", "status": "WORKING", "notes": "Returns job_id, removed_clips array, triggers background job"},
+    {"method": "GET", "path": "/api/script/job/{job_id}/status", "status": "WORKING", "notes": "Returns results with filename, character_name, audio_url, cached fields"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_script_compiler_fixes.py",
+    "/app/test_reports/pytest/script_compiler_fixes_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Expose batch_size in admin /api/admin-9821/generation/limits GET response for frontend consistency"
+  ],
+  "critical_code_review_comments": [
+    "batch_size parameter correctly passed to group_dialogues_into_batches at line 420 in script_compiler.py",
+    "_upload_wav_to_storage at line 360 uploads WAV to Nhost Storage with presigned URL, falls back to base64 on error",
+    "Filename format f\"{char_name}_{idx + 1:02d}.wav\" correctly generates CharacterName_Index.wav",
+    "generate_script_audio correctly computes removed_clips by comparing current vs previous dialogues cache keys",
+    "Frontend ScriptEditor.pushClipsToTimeline creates per-character track structure for AudioStudio consumption",
+    "Frontend AudioStudio handles both per-character format and legacy flat array format"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_script_compiler_fixes.py"
+  ],
+  "success_rate": {
+    "backend": "100% (All 5 gaps verified working)",
+    "frontend": "N/A (CORS prevented E2E testing, code review confirmed correct implementation)"
+  },
+  "test_credentials": {
+    "creator_email": "testuser@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345"
+  },
+  "test_data": {
+    "story_id": "story_45f8bef2c25c",
+    "episode_id": "ep_71379fe1575a",
+    "character_id": "char_54270a0d5757",
+    "character_name": "Jyoti",
+    "voice_id": "Achernar"
+  },
+  "verified_generations": {
+    "job_scrjob_fdaa2d8ec6dc": "Fresh generation - Nhost Storage URL returned",
+    "job_scrjob_ec1e9ff283b1": "Cached generation - cached=true returned"
+  },
+  "seed_data_creation": "Used existing test dialogues for generation testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 5 Script Compiler audit gaps verified working: (1) batch_size read from system_settings and enforced in group_dialogues_into_batches, (2) WAV files uploaded to Nhost Storage with presigned URLs, (3) filenames follow CharacterName_Index.wav format, (4) removed_clips returned in generate response, (5) frontend handles per-character track format. Cache working - second generation of same dialogue returns cached=true. CORS issue on localhost but external preview URL access works via backend API directly.",
+  "rca_of_the_issue": "N/A - All 5 fixes verified working as intended"
+}

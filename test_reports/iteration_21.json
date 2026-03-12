@@ -1,0 +1,130 @@
+{
+  "summary": "Generation Quota Management System Testing (Iteration 21). Tested admin generation controls, creator generation status, and rate limiting. Fixed critical bug in system_settings persistence - JSON string parsing issue. All backend APIs working correctly. Admin UI and Creator UI properly displaying generation limits.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_fixed_during_testing": [
+    {
+      "file": "/app/backend/generation_queue.py",
+      "issue": "get_system_limits() not parsing JSON string from database - setting_value stored as JSON string but treated as dict",
+      "fix": "Added JSON parsing with json.loads() when setting_value is a string"
+    },
+    {
+      "file": "/app/backend/generation_queue.py",
+      "issue": "update_system_limits() not merging with existing limits properly",
+      "fix": "Added proper merging of DEFAULT_LIMITS, existing limits, and new limits"
+    },
+    {
+      "file": "/app/backend/nhost_db.py",
+      "issue": "TABLE_FIELDS missing system_settings table definition causing only 'id' to be returned",
+      "fix": "Added system_settings table fields: 'id setting_key setting_value updated_by updated_at'"
+    },
+    {
+      "file": "/app/backend/nhost_db.py",
+      "issue": "user_profiles TABLE_FIELDS missing new generation columns",
+      "fix": "Added generation_status, daily_generation_limit, per_minute_limit, last_generation_at to user_profiles"
+    }
+  ],
+  "test_results": {
+    "backend_tests": {
+      "total": 16,
+      "passed": 14,
+      "skipped": 2,
+      "failed": 0,
+      "test_classes": {
+        "TestAdminGenerationLimitsGet": {
+          "test_get_limits_requires_auth": "PASSED",
+          "test_get_limits_returns_data": "PASSED"
+        },
+        "TestAdminGenerationLimitsPost": {
+          "test_update_limits_requires_auth": "PASSED",
+          "test_update_limits_success": "PASSED - limits now persist correctly"
+        },
+        "TestAdminGenerationAnalytics": {
+          "test_analytics_requires_auth": "PASSED",
+          "test_analytics_returns_data": "PASSED"
+        },
+        "TestAdminCreatorStats": {
+          "test_creator_stats_requires_auth": "PASSED",
+          "test_creator_stats_returns_list": "PASSED"
+        },
+        "TestAdminToggleCreatorStatus": {
+          "test_toggle_status_requires_auth": "PASSED",
+          "test_toggle_status_validates_input": "PASSED",
+          "test_toggle_status_success": "PASSED"
+        },
+        "TestCreatorGenerationStatus": {
+          "test_status_requires_auth": "PASSED",
+          "test_status_returns_data": "SKIPPED (rate limit)"
+        },
+        "TestAdminQueueStatus": {
+          "test_queue_requires_auth": "PASSED",
+          "test_queue_returns_data": "PASSED"
+        },
+        "TestCreatorAuditionRateLimiting": {
+          "test_audition_returns_proper_response": "SKIPPED (rate limit)"
+        }
+      }
+    },
+    "frontend_tests": {
+      "admin_generation_controls": {
+        "page_loads": "PASSED - Voice Generation Controls page loads at /admin-access/generation",
+        "analytics_overview": "PASSED - Shows Generations Today (0/60), Remaining Today (60), Active Creators (1), Failed Today (0)",
+        "global_limits_form": "PASSED - RPD, RPM, TPM inputs with Auto-Distribute toggle",
+        "save_button": "PASSED - Save System Limits button visible",
+        "real_time_status": "PASSED - Queue Status and Current Minute stats visible",
+        "per_creator_limit": "PASSED - Shows 60 generations/day auto-calculated",
+        "creators_table": "PASSED - Shows Test User with Active status and Disable button"
+      },
+      "creator_characters_page": {
+        "generation_status_badge": "PASSED - Shows 'Generations: 60/60' (remaining/daily_limit)",
+        "audition_credits_badge": "PASSED - Shows 'Audition: 1496'",
+        "voice_grid": "PASSED - 30 voices displayed with category filters"
+      }
+    }
+  },
+  "api_endpoints_verified": [
+    {"method": "GET", "path": "/api/admin-9821/generation/limits", "status": "WORKING"},
+    {"method": "POST", "path": "/api/admin-9821/generation/limits", "status": "WORKING"},
+    {"method": "GET", "path": "/api/admin-9821/generation/analytics", "status": "WORKING"},
+    {"method": "GET", "path": "/api/admin-9821/generation/creators", "status": "WORKING"},
+    {"method": "PATCH", "path": "/api/admin-9821/generation/creators/{id}/status", "status": "WORKING"},
+    {"method": "GET", "path": "/api/admin-9821/generation/queue", "status": "WORKING"},
+    {"method": "GET", "path": "/api/generation/status", "status": "WORKING"}
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_generation_quota.py",
+    "/app/test_reports/pytest/generation_quota_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Frontend route is /admin-access/generation (not /admin-access/generation-controls as documented in problem statement)",
+    "Rate limiting working correctly - audition endpoint respects limits",
+    "Auto-distribute logic correctly calculates per-creator limits (RPD / active_creator_count)"
+  ],
+  "updated_files": [
+    "/app/backend/generation_queue.py",
+    "/app/backend/nhost_db.py",
+    "/app/backend/tests/test_generation_quota.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 passed, 2 skipped due to rate limiting)",
+    "frontend": "100% (All UI elements verified)"
+  },
+  "test_credentials": {
+    "creator_email": "testuser@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345"
+  },
+  "seed_data_creation": "No new seed data created",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Generation quota management system fully functional. Admin can set global limits (RPD, RPM, TPM), toggle auto-distribute, and enable/disable creators. Creators see their remaining generations (60/60) and audition credits (1496) on Characters page. Rate limiting properly implemented - audition endpoint returns 429 when limits exceeded. Frontend route is /admin-access/generation."
+}

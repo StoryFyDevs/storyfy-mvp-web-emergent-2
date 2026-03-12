@@ -1,0 +1,159 @@
+{
+  "identity": {
+    "name": "StoryFy",
+    "persona": "The Sonic Weaver",
+    "core_philosophy": "Precision meets Emotion. A DAW that feels like a cockpit; a Player that feels like a cinema.",
+    "emotional_tone": {
+      "creator": "Focus, Power, Limitless, Technical",
+      "listener": "Immersive, Intimate, Cinematic, Discovery"
+    }
+  },
+  "typography": {
+    "font_family_imports": [
+      "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap",
+      "https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&display=swap"
+    ],
+    "rules": {
+      "headings": {
+        "marketing_listener": "Syne",
+        "creator_dashboard": "Space Grotesk",
+        "weight": "700/800",
+        "tracking": "tracking-tight"
+      },
+      "body": {
+        "primary": "Manrope",
+        "weight": "400/500",
+        "tracking": "tracking-normal"
+      },
+      "code_script": {
+        "family": "JetBrains Mono",
+        "usage": "Script Editor, Timecodes, Metadata"
+      }
+    }
+  },
+  "colors": {
+    "theme_strategy": "Dark Mode Default (Creator), Toggle Available",
+    "palette": {
+      "base": {
+        "obsidian": "#050505",
+        "charcoal": "#121212",
+        "slate_surface": "#1E1E22"
+      },
+      "brand_creator": {
+        "neon_cyan": "#00F0FF",
+        "electric_purple": "#7000FF",
+        "signal_green": "#00FF94",
+        "description": "High visibility, active states, waveforms"
+      },
+      "brand_listener": {
+        "deep_indigo": "#1A1B4B",
+        "warm_gold": "#FFD700",
+        "sunset_orange": "#FF6B6B",
+        "description": "Warmth, story covers, progress bars"
+      },
+      "utility": {
+        "text_primary": "#FFFFFF",
+        "text_secondary": "#A1A1AA",
+        "border_subtle": "rgba(255, 255, 255, 0.1)",
+        "glass_bg": "rgba(20, 20, 25, 0.7)"
+      }
+    },
+    "gradients": {
+      "hero_glow": "radial-gradient(circle at 50% 50%, rgba(112, 0, 255, 0.15) 0%, rgba(5, 5, 5, 0) 70%)",
+      "active_track": "linear-gradient(90deg, rgba(0, 240, 255, 0.1) 0%, rgba(0, 240, 255, 0) 100%)"
+    }
+  },
+  "spacing_and_layout": {
+    "scale": "Tailwind Extended (p-1 to p-64)",
+    "containers": {
+      "marketing": "max-w-7xl mx-auto px-6 md:px-12",
+      "dashboard": "w-full h-screen overflow-hidden grid grid-cols-[auto_1fr] grid-rows-[auto_1fr_auto]",
+      "script_editor": "max-w-3xl mx-auto py-12 px-8 bg-[#151515] shadow-2xl min-h-screen"
+    },
+    "grids": {
+      "bento_marketing": "grid grid-cols-1 md:grid-cols-12 gap-6",
+      "dashboard_panels": "flex flex-row h-full"
+    }
+  },
+  "components": {
+    "shadcn_customization": {
+      "instruction": "Heavily customize shadcn components. Remove rounded corners for a 'Tech' feel in Dashboard. Use pill shapes for Listener.",
+      "radius": {
+        "dashboard": "rounded-sm",
+        "listener": "rounded-full"
+      },
+      "border": {
+        "dashboard": "border border-white/10",
+        "listener": "border-none"
+      }
+    },
+    "custom_components": [
+      {
+        "name": "WaveformTrack",
+        "description": "Canvas-based audio visualization. Neon green/cyan lines on dark bg.",
+        "path": "/src/components/audio/WaveformTrack.js"
+      },
+      {
+        "name": "ScriptBlock",
+        "description": "Screenplay formatted text area (Courier/Mono). Auto-indent logic.",
+        "path": "/src/components/editor/ScriptBlock.js"
+      },
+      {
+        "name": "GlassPlayer",
+        "description": "Sticky bottom player with backdrop-blur-xl and progress bar.",
+        "path": "/src/components/player/GlassPlayer.js"
+      }
+    ]
+  },
+  "assets": {
+    "images": {
+      "hero_creator": {
+        "url": "https://images.unsplash.com/photo-1552174588-6733961c358e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHw0fHxzb3VuZCUyMGVuZ2luZWVyJTIwc3R1ZGlvJTIwaGVhZHBob25lcyUyMGRhcmslMjByZWNvcmRpbmd8ZW58MHx8fHwxNzcwODkwMDIyfDA&ixlib=rb-4.1.0&q=85",
+        "alt": "Professional Microphone in Dark Studio",
+        "usage": "Creator Landing Page Hero"
+      },
+      "hero_listener": {
+        "url": "https://images.unsplash.com/photo-1642110792361-d4cd92ad69e0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHw0fHxwZXJzb24lMjBsaXN0ZW5pbmclMjBoZWFkcGhvbmVzJTIwc3Vid2F5JTIwY2luZW1hdGljfGVufDB8fHx8MTc3MDg5MDAyMnww&ixlib=rb-4.1.0&q=85",
+        "alt": "Man listening on train",
+        "usage": "Listener Home Hero"
+      },
+      "waveform_visual": {
+        "url": "https://images.unsplash.com/photo-1591960028610-17925389af25?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxhdWRpbyUyMHdhdmVmb3JtJTIwdmlzdWFsaXphdGlvbiUyMG5lb258ZW58MHx8fHwxNzcwODkwMDIzfDA&ixlib=rb-4.1.0&q=85",
+        "alt": "Neon Waveform",
+        "usage": "AI Generation Feature Section"
+      },
+      "studio_context": {
+        "url": "https://images.unsplash.com/photo-1630754157718-8b7b3aaa57e2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxzb3VuZCUyMGVuZ2luZWVyJTIwc3R1ZGlvJTIwaGVhZHBob25lcyUyMGRhcmslMjByZWNvcmRpbmd8ZW58MHx8fHwxNzcwODkwMDIyfDA&ixlib=rb-4.1.0&q=85",
+        "alt": "Mixing Console",
+        "usage": "Production Studio Feature"
+      }
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5px for UI, 2px for Marketing"
+    }
+  },
+  "universal_guidelines": {
+    "accessibility": "Contrast ratios MUST meet WCAG AA. Use 'text-white' on dark backgrounds, never 'text-gray-400' for body copy.",
+    "motion": {
+      "micro": "button: active:scale-95 transition-transform",
+      "page_load": "framer-motion: initial={{opacity:0, y:20}} animate={{opacity:1, y:0}}",
+      "panels": "Resize panels must have smooth drag transition but snap to grid."
+    },
+    "universal_rules": [
+      "No gradients on text (readability issue).",
+      "No center alignment for long text blocks.",
+      "Use 'data-testid' on ALL interactive elements.",
+      "Dark mode is default. Light mode is secondary.",
+      "Dashboard must fill 100vh. No scroll on the main window, only inside panels."
+    ]
+  },
+  "implementation_steps": [
+    "1. Setup Fonts and Tailwind Colors in tailwind.config.js",
+    "2. Create Layout Shells (CreatorStudioLayout vs MarketingLayout)",
+    "3. Build Atomic Components (Track, Knob, ScriptLine)",
+    "4. Assemble Dashboard Pages (Script, Audio, Publish)",
+    "5. Assemble Listener Pages (Home, Player)",
+    "6. Polish with Framer Motion"
+  ]
+}
