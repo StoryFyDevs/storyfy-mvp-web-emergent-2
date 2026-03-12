@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 
 import supabase_db as ndb
-import supabase_storage as nst
+import supabase_storage as storage
 import generation_queue as gq
 import storage_cleanup as sc_storage
 
@@ -185,7 +185,7 @@ def _extract_clip_from_wav(wav_bytes: bytes, start_sec: float, end_sec: float) -
 async def _upload_wav(wav: bytes, filename: str, episode_id: str = "") -> str:
     try:
         path = f"scripts/{episode_id}/{filename}" if episode_id else f"scripts/{filename}"
-        meta = await nst.upload_file(path, wav, "audio/wav")
+        meta = await storage.upload_file(path, wav, "audio/wav")
         fid = meta.get("id", "")
         if fid:
             logger.info(f"Uploaded {filename}: file_id={fid}, size={len(wav)}B")

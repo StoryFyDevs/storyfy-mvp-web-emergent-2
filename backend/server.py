@@ -34,6 +34,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Analytics table check skipped: {e}")
 
+    # Ensure Supabase storage buckets exist
+    try:
+        import supabase_storage as _st
+        _st._ensure_buckets()
+        logger.info("Storage buckets verified/created")
+    except Exception as e:
+        logger.warning(f"Storage bucket check skipped: {e}")
+
     # Start daily storage cleanup background task
     try:
         from storage_cleanup import _daily_cleanup_loop

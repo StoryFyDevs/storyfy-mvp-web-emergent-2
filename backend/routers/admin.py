@@ -82,7 +82,7 @@ async def admin_stats(authorization: Optional[str] = Header(None)):
     total_stories = await ndb.count_rows("stories")
     total_episodes = await ndb.count_rows("episodes")
 
-    # Active creators (approximate - Nhost doesn't have last_active by default)
+    # Active creators
     # For now, return total creators as active
     active_7d = total_creators
     active_30d = total_creators
@@ -392,13 +392,25 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
     story = await ndb.find_one("stories", {"story_id": episode.get("story_id", "")})
     user = await ndb.find_one("user_profiles", {"user_id": story.get("created_by", "")}) if story else None
 
+    import json as _json
+
     project_state = episode.get("project_state", {})
     if isinstance(project_state, str):
-        import json
         try:
-            project_state = json.loads(project_state)
+            project_state = _json.loads(project_state)
         except:
             project_state = {}
+
+    # Parse structured dialogues from script_content
+    dialogues = []
+    raw_script = episode.get("script_content", "")
+    if isinstance(raw_script, str) and raw_script:
+        try:
+            parsed = _json.loads(raw_script)
+            if isinstance(parsed, list):
+                dialogues = parsed
+        except Exception:
+            pass
 
     return {
         "episode": {
@@ -415,6 +427,7 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
             "title": story.get("title", "") if story else "",
         } if story else None,
         "creator_name": user.get("name", "Unknown") if user else "Unknown",
+        "dialogues": dialogues,
         "project_state": project_state
     }
 

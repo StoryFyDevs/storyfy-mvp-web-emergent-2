@@ -1,6 +1,5 @@
 """
 Supabase Storage Module - File upload/download via Supabase Storage API.
-Drop-in replacement for nhost_storage.py.
 """
 import os
 import logging
@@ -46,7 +45,7 @@ def _ensure_buckets():
 async def upload_file(filename: str, content: bytes, content_type: str, bucket_id: str = None):
     """
     Upload a file to Supabase Storage.
-    Returns a metadata dict compatible with nhost_storage response format.
+    Returns a metadata dict with id, name, bucketId, mimeType, size, publicUrl.
     """
     if bucket_id is None or bucket_id == "default":
         bucket_id = BUCKET_AUDIO
@@ -134,7 +133,7 @@ async def delete_file(file_id: str) -> bool:
 
 def _parse_file_id(file_id: str) -> tuple[str, str]:
     """Parse 'bucket/path' format file_id back into (bucket, path)."""
-    # Legacy nhost file_id format (UUID) — map to default bucket
+    # Legacy UUID-only file_id format — map to default bucket
     if "/" not in file_id:
         return BUCKET_AUDIO, file_id
     parts = file_id.split("/", 1)

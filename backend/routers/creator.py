@@ -16,7 +16,7 @@ import wave
 import requests as req_lib
 
 import supabase_db as ndb
-import supabase_storage as nhost_storage
+import supabase_storage as storage
 import generation_queue as gq
 from auth_service import resolve_user_from_token
 from models import (
@@ -825,12 +825,12 @@ async def generate_all_voice_samples():
 
             result = await _gemini_generate_speech(text=text, voice_name=voice_id, language_code="hi")
 
-            # Upload to Nhost Storage
+            # Upload to Supabase Storage
             storage_file_id = ""
             try:
                 audio_b64_data = result["audio_url"].split(",")[1]
                 audio_bytes = base64.b64decode(audio_b64_data)
-                file_meta = await nhost_storage.upload_file(f"{voice_id}.wav", audio_bytes, "audio/wav")
+                file_meta = await storage.upload_file(f"{voice_id}.wav", audio_bytes, "audio/wav")
                 storage_file_id = file_meta.get("id", "")
             except Exception as ue:
                 logger.warning(f"Storage upload failed for {voice_id}: {ue}")
@@ -1016,7 +1016,7 @@ async def upload_audio(file: UploadFile = File(...), story_id: str = Form(...), 
         safe_filename = file.filename.replace(" ", "_")
         storage_filename = f"{user_id}_{story_id}_{timestamp}_{safe_filename}"
 
-        file_meta = await nhost_storage.upload_file(storage_filename, file_content, file.content_type or "audio/wav")
+        file_meta = await storage.upload_file(storage_filename, file_content, file.content_type or "audio/wav")
         storage_file_id = file_meta.get("id", "")
 
         asset_id = f"asset_{uuid.uuid4().hex[:12]}"
@@ -1046,7 +1046,7 @@ async def download_audio(asset_id: str, authorization: Optional[str] = Header(No
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     try:
-        file_content = await nhost_storage.download_file(asset["storage_file_id"])
+        file_content = await storage.download_file(asset["storage_file_id"])
         return StreamingResponse(iter([file_content]), media_type=asset.get("mime_type", "audio/mpeg"), headers={"Content-Disposition": f"attachment; filename={asset.get('name', 'audio')}"})
     except Exception as e:
         logger.error(f"Download error: {e}")
@@ -1061,20 +1061,20 @@ async def delete_audio_asset(asset_id: str, authorization: Optional[str] = Heade
         raise HTTPException(status_code=404, detail="Asset not found")
     try:
         if asset.get("storage_file_id"):
-            await nhost_storage.delete_file(asset["storage_file_id"])
+            await storage.delete_file(asset["storage_file_id"])
         await ndb.delete_rows("audio_assets", {"asset_id": asset_id})
         return {"message": "Asset deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
 
 
-@creator_router.get("/audio/stream-file/{file_id}")
+@creator_router.get("/audio/stream-file/{file_id:path}")
 async def stream_audio_file(file_id: str):
-    """Stream an audio file from Nhost Storage by file ID.
+    """Stream an audio file from Supabase Storage by file ID.
     This is the stable endpoint for audio playback — presigned URLs expire,
     but this endpoint always works because it authenticates server-side."""
     try:
-        file_content = await nhost_storage.download_file(file_id)
+        file_content = await storage.download_file(file_id)
         return StreamingResponse(
             iter([file_content]),
             media_type="audio/wav",
@@ -1154,12 +1154,12 @@ async def finalize_render(episode_id: str, body: Dict[str, Any] = None, authoriz
 
     file_size = os.path.getsize(assembled_path)
 
-    # Upload to Nhost Storage
+    # Upload to Supabase Storage
     storage_filename = f"{profile['user_id']}_{ep['story_id']}_{episode_id}_final.wav"
     try:
         with open(assembled_path, "rb") as f:
             file_content = f.read()
-        file_meta = await nhost_storage.upload_file(storage_filename, file_content, "audio/wav")
+        file_meta = await storage.upload_file(storage_filename, file_content, "audio/wav")
         storage_file_id = file_meta.get("id", "")
     except Exception as e:
         shutil.rmtree(chunk_dir, ignore_errors=True)
@@ -1184,7 +1184,7 @@ async def stream_rendered_audio(episode_id: str, authorization: Optional[str] = 
     if not ep or not ep.get("final_audio_url"):
         raise HTTPException(status_code=404, detail="No rendered audio found")
     try:
-        file_content = await nhost_storage.download_file(ep["final_audio_url"])
+        file_content = await storage.download_file(ep["final_audio_url"])
         return StreamingResponse(iter([file_content]), media_type="audio/wav", headers={"Content-Disposition": f"inline; filename={episode_id}_final.wav"})
     except Exception as e:
         logger.error(f"Stream error: {e}")
