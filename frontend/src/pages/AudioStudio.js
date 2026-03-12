@@ -184,17 +184,10 @@ function AudioStudio() {
     if (!url) return null;
     // base64 data URLs — use directly
     if (url.startsWith('data:')) return url;
-    // New stable format: nhost-file:{file_id}
+    // Supabase storage format: storage-file:{file_id}
     if (url.startsWith('nhost-file:')) {
       const fileId = url.replace('nhost-file:', '');
-      return `${process.env.REACT_APP_BACKEND_URL}/api/audio/stream-file/${fileId}`;
-    }
-    // Legacy: expired presigned Nhost URLs — extract file_id and proxy through backend
-    if (url.includes('.nhost.run/v1/files/')) {
-      const match = url.match(/\/v1\/files\/([a-f0-9-]+)/);
-      if (match) {
-        return `${process.env.REACT_APP_BACKEND_URL}/api/audio/stream-file/${match[1]}`;
-      }
+      return `/api/audio/stream-file/${fileId}`;
     }
     // Any other URL — use as-is
     return url;

@@ -6,8 +6,8 @@ A full-stack audio story creation platform built with React (frontend) and FastA
 
 - **Frontend**: React (Create React App + CRACO), runs on port 5000
 - **Backend**: FastAPI (Python), runs on port 8000
-- **Auth**: Nhost JWT (kept — no change)
-- **Database**: Supabase PostgreSQL via PostgREST (migrated from Nhost/Hasura)
+- **Auth**: Supabase Auth (email/password + Google OAuth)
+- **Database**: Supabase PostgreSQL via PostgREST
 - **Storage**: Supabase Storage (buckets: storyfy-audio, storyfy-cache, storyfy-exports)
 
 ## Project Structure
@@ -18,14 +18,14 @@ frontend/       React app (CRA + CRACO)
     pages/      Route-level pages
     components/ Shared components (LoadingScreen, etc.)
     contexts/   StudioContext — shared state for studio tabs (episodes, characters, voices)
-    lib/        Nhost client config (auth only)
+    lib/        Supabase client config (supabase.js)
   plugins/      Visual edits + health check plugins
 backend/        FastAPI app
   routers/      auth, creator, admin, mobile
   server.py     Main FastAPI app
-  supabase_db.py      PostgREST client (replaces nhost_db.py)
-  supabase_storage.py Supabase Storage client (replaces nhost_storage.py)
-  nhost_auth.py       JWT verification (Nhost auth, kept)
+  auth_service.py     Supabase Auth SDK — register, login, token verify, profile sync
+  supabase_db.py      PostgREST CRUD client
+  supabase_storage.py Supabase Storage client
   script_compiler.py  Audio generation pipeline
   storage_cleanup.py  Storage lifecycle management
   generation_queue.py Background generation

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import nhost from '../lib/nhost';
+import supabase from '../lib/supabase';
 
 function Signup() {
   const [name, setName] = useState('');
@@ -17,64 +17,34 @@ function Signup() {
   const handleSignup = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
-      // Use Nhost SDK directly for signup
-      const { session, error } = await nhost.auth.signUp({
-        email,
-        password,
-        options: {
-          displayName: name,
-          metadata: { role: 'creator' },
-        }
+      const response = await fetch(`/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password })
       });
-      
-      if (error) {
-        // Handle specific error types
-        if (error.message?.includes('rate') || error.message?.includes('429') || error.message?.toLowerCase().includes('network')) {
-          throw new Error('Too many signup attempts. Please wait a minute and try again.');
-        }
-        throw new Error(error.message || 'Signup failed');
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Signup failed');
       }
-      
-      // If session is null, email verification is required
-      if (!session) {
+
+      if (data.requires_verification) {
         toast.success('Account created! Please check your email to verify your account.');
         navigate('/login');
         return;
       }
-      
-      // If we have a session, user is logged in directly
-      const accessToken = session.accessToken;
-      
-      // Also create profile in our backend
-      try {
-        const backendResponse = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, password })
-        });
-        
-        if (backendResponse.ok) {
-          const data = await backendResponse.json();
-          localStorage.setItem('token', data.token || accessToken);
-        } else {
-          // Use Nhost token as fallback
-          localStorage.setItem('token', accessToken);
-        }
-      } catch (backendError) {
-        // Use Nhost token if backend sync fails
-        localStorage.setItem('token', accessToken);
-        console.log('Backend sync skipped:', backendError);
+
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        toast.success('Account created successfully!');
+        navigate('/dashboard');
       }
-      
-      toast.success('Account created successfully!');
-      navigate('/dashboard');
     } catch (error) {
-      console.error('Signup error:', error);
-      // Improve error messages for common issues
       let errorMessage = error.message || 'Signup failed';
-      if (errorMessage.toLowerCase().includes('network')) {
+      if (errorMessage.toLowerCase().includes('network') || errorMessage.toLowerCase().includes('fetch')) {
         errorMessage = 'Unable to connect. Please check your internet and try again.';
       }
       toast.error(errorMessage);
@@ -86,29 +56,22 @@ function Signup() {
   const handleGoogleSignup = async () => {
     setGoogleLoading(true);
     try {
-      // Use Nhost Google OAuth
-      const { error } = await nhost.auth.signIn({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: window.location.origin + '/auth/callback',
         }
       });
-      
+
       if (error) {
-        console.error('Google signup error:', error);
-        // Check for specific error types
-        if (error.message?.includes('redirectTo') || error.message?.includes('not allowed')) {
-          toast.error('Google signup is not configured. Please contact support or use email signup.');
-        } else if (error.message?.includes('provider')) {
+        if (error.message?.includes('provider')) {
           toast.error('Google provider is not enabled. Please use email signup.');
         } else {
           toast.error(error.message || 'Google signup failed');
         }
         setGoogleLoading(false);
       }
-      // If successful, browser will redirect to Google
     } catch (error) {
-      console.error('Google signup error:', error);
       toast.error('Failed to initiate Google signup. Please use email signup.');
       setGoogleLoading(false);
     }
@@ -121,7 +84,7 @@ function Signup() {
           <h1 className="text-5xl font-bold font-syne text-white mb-3">StoryFy</h1>
           <p className="text-text-secondary text-lg">Create your audio stories</p>
         </div>
-        
+
         <div className="bg-charcoal border border-white/10 rounded-sm p-8">
           <form onSubmit={handleSignup} className="space-y-6">
             <div>
@@ -137,7 +100,7 @@ function Signup() {
                 data-testid="signup-name-input"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="email" className="text-white">Email</Label>
               <Input
@@ -151,7 +114,7 @@ function Signup() {
                 data-testid="signup-email-input"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="password" className="text-white">Password</Label>
               <Input
@@ -167,7 +130,7 @@ function Signup() {
               />
               <p className="text-text-secondary text-xs mt-1">Minimum 8 characters</p>
             </div>
-            
+
             <Button
               type="submit"
               className="w-full bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 font-semibold"
@@ -177,7 +140,7 @@ function Signup() {
               {loading ? 'Creating account...' : 'Create Account'}
             </Button>
           </form>
-          
+
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-white/10"></div>
@@ -186,7 +149,7 @@ function Signup() {
               <span className="px-2 bg-charcoal text-text-secondary">or</span>
             </div>
           </div>
-          
+
           <Button
             onClick={handleGoogleSignup}
             variant="outline"
@@ -208,7 +171,7 @@ function Signup() {
               </>
             )}
           </Button>
-          
+
           <p className="text-center mt-6 text-text-secondary">
             Already have an account?{' '}
             <Link to="/login" className="text-neon-cyan hover:underline" data-testid="login-link">

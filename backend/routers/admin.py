@@ -7,7 +7,7 @@ import os
 import re
 
 import supabase_db as ndb
-from nhost_auth import require_admin_from_token
+from auth_service import require_admin_from_token
 from models import AdminLogin, LimitAdjustRequest, UserStatusUpdate
 
 logger = logging.getLogger("admin")
@@ -31,10 +31,10 @@ async def _auth_admin(authorization: Optional[str]) -> dict:
 
 @admin_router.post("/login")
 async def admin_login(credentials: AdminLogin):
-    """Admin login using Nhost Auth."""
-    import nhost_auth
+    """Admin login using Supabase Auth."""
+    import auth_service
     try:
-        result = await nhost_auth.login_nhost_user(
+        result = await auth_service.login_supabase_user(
             email=credentials.email,
             password=credentials.password,
         )
@@ -44,14 +44,14 @@ async def admin_login(credentials: AdminLogin):
         logger.error(f"Admin login error: {e}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    session = result.get("session", {})
-    access_token = session.get("accessToken", "")
-    nhost_user = session.get("user", {})
+    user = result.user
+    session = result.session
+    access_token = session.access_token if session else ""
 
-    profile = await nhost_auth.get_or_create_profile(
-        auth_id=nhost_user.get("id", ""),
+    profile = await auth_service.get_or_create_profile(
+        auth_id=user.id,
         email=credentials.email,
-        display_name=nhost_user.get("displayName", ""),
+        display_name=(user.user_metadata or {}).get("display_name", ""),
     )
 
     if profile.get("role") != "admin":

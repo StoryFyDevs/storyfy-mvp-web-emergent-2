@@ -18,7 +18,7 @@ import requests as req_lib
 import supabase_db as ndb
 import supabase_storage as nhost_storage
 import generation_queue as gq
-from nhost_auth import resolve_user_from_token
+from auth_service import resolve_user_from_token
 from models import (
     StoryCreate, Story, EpisodeCreate, Episode,
     CharacterCreate, Character, TTSRequest, TTSResponse,

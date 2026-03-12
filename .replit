@@ -67,10 +67,6 @@ publicDir = "frontend/build"
 [userenv]
 
 [userenv.shared]
-NHOST_SUBDOMAIN = "hybvrxpirbjtifwmbeyt"
-NHOST_REGION = "ap-south-1"
-REACT_APP_NHOST_SUBDOMAIN = "hybvrxpirbjtifwmbeyt"
-REACT_APP_NHOST_REGION = "ap-south-1"
 SUPABASE_URL = "https://kuophclrijrriufdzbks.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1b3BoY2xyaWpycml1ZmR6YmtzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzMjI0NTYsImV4cCI6MjA4ODg5ODQ1Nn0.m58wTokIcof7hIG6knD3N4-APi5Z8MQ-p3jNthRA2Lw"
 SUPABASE_BUCKET_AUDIO = "storyfy-audio"

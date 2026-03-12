@@ -5,17 +5,16 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { Shield, Mic2 } from 'lucide-react';
-import nhost from '../lib/nhost';
+import supabase from '../lib/supabase';
 
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [mode, setMode] = useState('creator'); // 'creator' | 'admin'
+  const [mode, setMode] = useState('creator');
   const navigate = useNavigate();
 
-  // Auto-redirect if already authenticated
   useEffect(() => {
     const adminToken = localStorage.getItem('admin_token');
     const creatorToken = localStorage.getItem('token');
@@ -31,8 +30,8 @@ function Login() {
     setLoading(true);
 
     const endpoint = mode === 'admin'
-      ? `${process.env.REACT_APP_BACKEND_URL}/api/admin-9821/login`
-      : `${process.env.REACT_APP_BACKEND_URL}/api/auth/login`;
+      ? `/api/admin-9821/login`
+      : `/api/auth/login`;
 
     try {
       const response = await fetch(endpoint, {
@@ -45,7 +44,6 @@ function Login() {
       try {
         data = await response.json();
       } catch (jsonError) {
-        // Handle non-JSON responses (like rate limit errors)
         if (response.status === 429) {
           throw new Error('Too many login attempts. Please wait a moment and try again.');
         }
@@ -65,7 +63,6 @@ function Login() {
         toast.success('Login successful!');
         navigate('/dashboard', { replace: true });
       }
-      return;
     } catch (error) {
       toast.error(error.message);
       setLoading(false);
@@ -75,29 +72,22 @@ function Login() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      // Use Nhost Google OAuth
-      const { error } = await nhost.auth.signIn({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: window.location.origin + '/auth/callback',
         }
       });
-      
+
       if (error) {
-        console.error('Google login error:', error);
-        // Check for specific error types
-        if (error.message?.includes('redirectTo') || error.message?.includes('not allowed')) {
-          toast.error('Google login is not configured. Please contact support or use email login.');
-        } else if (error.message?.includes('provider')) {
+        if (error.message?.includes('provider')) {
           toast.error('Google provider is not enabled. Please use email login.');
         } else {
           toast.error(error.message || 'Google login failed');
         }
         setGoogleLoading(false);
       }
-      // If successful, browser will redirect to Google
     } catch (error) {
-      console.error('Google login error:', error);
       toast.error('Failed to initiate Google login. Please use email login.');
       setGoogleLoading(false);
     }
@@ -115,7 +105,6 @@ function Login() {
           </p>
         </div>
 
-        {/* Mode Toggle */}
         <div className="flex bg-charcoal border border-white/10 rounded-sm p-1 mb-6" data-testid="login-mode-toggle">
           <button
             onClick={() => setMode('creator')}

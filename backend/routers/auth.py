@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import logging
 
 import supabase_db as ndb
-import nhost_auth
+import auth_service
 from models import UserSignup, UserLogin, User, UserPublic, AdminLogin
 
 logger = logging.getLogger("auth")
@@ -34,7 +34,7 @@ def _profile_to_user(profile: dict) -> dict:
 async def signup(user_data: UserSignup):
     role = "admin" if user_data.email == ADMIN_EMAIL else "creator"
     try:
-        result = await nhost_auth.register_nhost_user(
+        result = await auth_service.register_supabase_user(
             email=user_data.email,
             password=user_data.password,
             display_name=user_data.name,
@@ -46,12 +46,10 @@ async def signup(user_data: UserSignup):
         logger.error(f"Signup error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
-    session = result.get("session", {})
-    access_token = session.get("accessToken", "")
-    nhost_user = session.get("user", result.get("user", {}))
-    
-    # If no session/user returned, email verification is required
-    if not nhost_user or not nhost_user.get("id"):
+    user = result.user
+    session = result.session
+
+    if not user or not user.id:
         return {
             "message": "Account created! Please check your email to verify your account.",
             "requires_verification": True,
@@ -59,8 +57,10 @@ async def signup(user_data: UserSignup):
             "token": "",
         }
 
-    profile = await nhost_auth.get_or_create_profile(
-        auth_id=nhost_user.get("id", ""),
+    access_token = session.access_token if session else ""
+
+    profile = await auth_service.get_or_create_profile(
+        auth_id=user.id,
         email=user_data.email,
         display_name=user_data.name,
         metadata={"role": role},
@@ -75,7 +75,7 @@ async def signup(user_data: UserSignup):
 @auth_router.post("/login")
 async def login(credentials: UserLogin):
     try:
-        result = await nhost_auth.login_nhost_user(
+        result = await auth_service.login_supabase_user(
             email=credentials.email,
             password=credentials.password,
         )
@@ -85,14 +85,14 @@ async def login(credentials: UserLogin):
         logger.error(f"Login error: {e}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    session = result.get("session", {})
-    access_token = session.get("accessToken", "")
-    nhost_user = session.get("user", {})
+    user = result.user
+    session = result.session
+    access_token = session.access_token if session else ""
 
-    profile = await nhost_auth.get_or_create_profile(
-        auth_id=nhost_user.get("id", ""),
+    profile = await auth_service.get_or_create_profile(
+        auth_id=user.id,
         email=credentials.email,
-        display_name=nhost_user.get("displayName", ""),
+        display_name=(user.user_metadata or {}).get("display_name", ""),
     )
 
     if not profile.get("is_active", True):
@@ -110,7 +110,7 @@ async def get_me(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
     try:
-        profile = await nhost_auth.resolve_user_from_token(token)
+        profile = await auth_service.resolve_user_from_token(token)
         return User(**_profile_to_user(profile))
     except HTTPException:
         raise
@@ -131,9 +131,9 @@ async def oauth_sync(authorization: Optional[str] = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization required")
     token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
-    
+
     try:
-        profile = await nhost_auth.resolve_user_from_token(token)
+        profile = await auth_service.resolve_user_from_token(token)
         return {"user": UserPublic(**_profile_to_user(profile)), "message": "Profile synced"}
     except HTTPException:
         raise
@@ -144,5 +144,5 @@ async def oauth_sync(authorization: Optional[str] = Header(None)):
 
 @auth_router.post("/session")
 async def process_session():
-    """Legacy Emergent OAuth session - no longer supported."""
-    raise HTTPException(status_code=410, detail="Use email/password or Google OAuth via Nhost")
+    """Legacy session endpoint - no longer supported."""
+    raise HTTPException(status_code=410, detail="Use email/password or Google OAuth via Supabase")
