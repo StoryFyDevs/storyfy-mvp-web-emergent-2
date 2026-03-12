@@ -128,7 +128,7 @@ function AdminProjectViewer() {
 
   // Mirror AudioStudio's loadAudioBuffer — silently return null on failure, no visual marking
   const loadAudioBuffer = useCallback(async (clip) => {
-    if (!clip?.url) return null;
+    if (!clip?.url || clip.url === null) return null; // null = server marked as unavailable
     if (audioBuffersRef.current[clip.id]) return audioBuffersRef.current[clip.id];
     const ctx = await ensureAudioContext();
     if (!ctx) return null;
@@ -471,16 +471,26 @@ function AdminProjectViewer() {
                       {(track.clips || []).map((clip) => {
                         const clipLeft = (clip.start || 0) * pps;
                         const clipWidth = Math.max((clip.duration || 0) * pps, 40);
+                        const isUnavailable = clip.url === null || clip.url === undefined || clip.url === '';
                         return (
                           <div
                             key={clip.id}
-                            className={`absolute top-2 h-16 bg-gradient-to-r ${clipColor(track.type)} border rounded-sm px-2 py-1`}
+                            className={`absolute top-2 h-16 border rounded-sm px-2 py-1 ${
+                              isUnavailable
+                                ? 'bg-white/5 border-white/10 opacity-50'
+                                : `bg-gradient-to-r ${clipColor(track.type)}`
+                            }`}
                             style={{ left: `${clipLeft}px`, width: `${clipWidth}px` }}
-                            title={`${clip.name}\nStart: ${formatTime(clip.start || 0)}\nDuration: ${formatTime(clip.duration || 0)}`}
+                            title={isUnavailable
+                              ? `${clip.name}\nAudio unavailable (original file was deleted)`
+                              : `${clip.name}\nStart: ${formatTime(clip.start || 0)}\nDuration: ${formatTime(clip.duration || 0)}`}
                             data-testid={`viewer-clip-${clip.id}`}
                           >
-                            <span className="text-xs text-white truncate font-medium block">{clip.name}</span>
-                            <span className="text-xs text-white/50 block">{formatTime(clip.duration || 0)}</span>
+                            <span className={`text-xs truncate font-medium block ${isUnavailable ? 'text-white/40 line-through' : 'text-white'}`}>{clip.name}</span>
+                            {isUnavailable
+                              ? <span className="text-xs text-white/30 block">unavailable</span>
+                              : <span className="text-xs text-white/50 block">{formatTime(clip.duration || 0)}</span>
+                            }
                           </div>
                         );
                       })}

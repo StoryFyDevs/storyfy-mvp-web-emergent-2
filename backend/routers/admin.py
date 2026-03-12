@@ -402,24 +402,16 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
         except:
             project_state = {}
 
-    # --- Refresh stale clip URLs from audio_clips table ---
-    # The project_state may have old Nhost UUID URLs. We look up the latest
-    # active audio for each dialogue_index from the audio_clips table and
-    # patch any clip whose URL would 404.
+    # --- Resolve clip URLs: replace stale Nhost refs with live Supabase URLs (or null) ---
     try:
         active_clips = await ndb.find_many(
             "audio_clips",
             {"episode_id": {"_eq": episode_id}, "is_active": {"_eq": True}},
             limit=500,
         )
-        # Log existing clip URLs for diagnosis
-        if isinstance(project_state, dict):
-            for t in project_state.get("tracks", []):
-                for c in t.get("clips", []):
-                    logger.info(f"  project_state clip id={c.get('id','')} url={str(c.get('url',''))[:80]}")
-        logger.info(f"admin_project {episode_id}: found {len(active_clips)} active audio_clips")
 
         def _is_stale(url: str) -> bool:
+            """True for any old Nhost URL that will 404."""
             if not url:
                 return False
             if "nhost.run" in url or "nhost.io" in url:
@@ -428,42 +420,38 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
                 return "/" not in url[len("nhost-file:"):]
             return False
 
-        # Build map: dialogue_index -> audio_url (only valid non-stale URLs)
+        # Build map: dialogue_index -> valid audio_url from audio_clips
         active_map: Dict[int, str] = {}
         for ac in active_clips:
             idx = ac.get("dialogue_index")
             url = ac.get("audio_url", "")
             if idx is not None and url and not _is_stale(url):
                 active_map[int(idx)] = url
-                url_preview = url[:60] if len(url) > 60 else url
-                logger.info(f"  dialogue[{idx}] valid url={url_preview}")
-            elif idx is not None:
-                logger.info(f"  dialogue[{idx}] skipped stale url={str(url)[:60]}")
 
-        if active_map and isinstance(project_state, dict):
-            tracks = project_state.get("tracks", [])
-            for track in tracks:
+        stale_count = 0
+        substituted = 0
+        if isinstance(project_state, dict):
+            for track in project_state.get("tracks", []):
                 refreshed = []
                 for clip in track.get("clips", []):
                     clip_url = clip.get("url", "")
-                    # Detect stale URL: nhost-file: prefix with a bare UUID (no slash)
-                    is_stale = False
-                    if clip_url.startswith("nhost-file:"):
-                        file_id = clip_url[len("nhost-file:"):]
-                        if "/" not in file_id:
-                            is_stale = True
-                    # Try to extract dialogue_index from clip ID (e.g. "scrclip-1773325441393-0")
-                    if is_stale or not clip_url:
-                        clip_id = clip.get("id", "")
-                        dial_idx = None
-                        m = _re.search(r"-(\d+)$", clip_id)
-                        if m:
-                            dial_idx = int(m.group(1))
-                        if dial_idx is not None and dial_idx in active_map:
-                            clip = dict(clip)
-                            clip["url"] = active_map[dial_idx]
+                    if _is_stale(clip_url):
+                        # Try to find a valid replacement by dialogue_index
+                        m = _re.search(r"-(\d+)$", clip.get("id", ""))
+                        dial_idx = int(m.group(1)) if m else None
+                        replacement = active_map.get(dial_idx) if dial_idx is not None else None
+                        clip = dict(clip)
+                        if replacement:
+                            clip["url"] = replacement
+                            substituted += 1
+                        else:
+                            clip["url"] = None  # Mark unavailable so frontend skips cleanly
+                            stale_count += 1
                     refreshed.append(clip)
                 track["clips"] = refreshed
+
+        if stale_count or substituted:
+            logger.info(f"admin_project {episode_id}: {stale_count} unavailable clips, {substituted} substituted from audio_clips")
     except Exception as _e:
         logger.warning(f"audio_clips refresh failed for {episode_id}: {_e}")
 
