@@ -149,6 +149,12 @@ async def listener_login(req: ListenerLogin):
         raise HTTPException(status_code=401, detail="Login failed — no session returned")
     access_token = session.access_token
 
+    # Check the authoritative role from Supabase auth metadata BEFORE profile creation.
+    # This prevents a creator account from ever being minted as a listener profile here.
+    auth_role = (user.user_metadata or {}).get("role", "")
+    if auth_role and auth_role != "listener":
+        raise HTTPException(status_code=403, detail="Not a listener account")
+
     profile = await auth_service.get_or_create_profile(
         auth_id=user.id,
         email=req.email,
@@ -156,6 +162,7 @@ async def listener_login(req: ListenerLogin):
         metadata={"role": "listener"},
     )
 
+    # Secondary check covers existing profiles whose role may differ from auth metadata
     if profile.get("role") not in ("listener",):
         raise HTTPException(status_code=403, detail="Not a listener account")
 

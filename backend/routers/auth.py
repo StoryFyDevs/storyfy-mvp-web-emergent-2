@@ -98,6 +98,12 @@ async def login(credentials: UserLogin):
     session = result.session
     access_token = session.access_token if session else ""
 
+    # Check the authoritative role from Supabase auth metadata BEFORE profile creation.
+    # This prevents a listener account from ever being minted as a creator profile here.
+    auth_role = (user.user_metadata or {}).get("role", "")
+    if auth_role == "listener":
+        raise HTTPException(status_code=401, detail="Listener accounts must use the mobile app")
+
     profile = await auth_service.get_or_create_profile(
         auth_id=user.id,
         email=credentials.email,
@@ -107,8 +113,9 @@ async def login(credentials: UserLogin):
     if not profile.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is suspended")
 
+    # Secondary check covers existing profiles whose role may have been set before auth metadata check
     if profile.get("role") == "listener":
-        raise HTTPException(status_code=403, detail="Listener accounts must use the mobile app")
+        raise HTTPException(status_code=401, detail="Listener accounts must use the mobile app")
 
     return {
         "user": UserPublic(**_profile_to_user(profile)),

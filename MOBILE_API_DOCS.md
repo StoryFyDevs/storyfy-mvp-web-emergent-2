@@ -173,7 +173,7 @@ Response: { "message": "Event tracked" }
 | Creator web app | `POST /api/auth/login` | `creator` or `admin` only |
 
 - A **creator** account trying to log in at `/api/mobile/auth/login` gets `403 Not a listener account`
-- A **listener** account trying to log in at `/api/auth/login` gets `403 Listener accounts must use the mobile app`
+- A **listener** account trying to log in at `/api/auth/login` gets `401 Listener accounts must use the mobile app`
 
 ---
 
