@@ -48,7 +48,7 @@ def _resolve_audio_url(raw_url: str) -> Optional[str]:
         return None
     if raw_url.startswith("nhost-file:"):
         file_id = raw_url[len("nhost-file:"):]
-        if "/" in file_id:
+        if file_id:
             return f"/api/audio/stream-file/{file_id}"
         return None
     if raw_url.startswith("data:audio/"):
