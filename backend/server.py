@@ -75,13 +75,8 @@ app.include_router(auth_router)
 app.include_router(creator_router)
 app.include_router(admin_router)
 
-# Mobile listener API router
-try:
-    from routers.mobile import mobile_v1_router
-    app.include_router(mobile_v1_router)
-    logger.info("Mobile API router loaded at /api/mobile")
-except Exception as e:
-    logger.warning(f"Mobile router not loaded: {e}")
+from routers.mobile import mobile_v1_router
+app.include_router(mobile_v1_router)
 
 
 @app.get("/api/health")
