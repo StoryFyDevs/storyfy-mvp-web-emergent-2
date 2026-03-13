@@ -6,6 +6,7 @@ import logging
 import math
 
 import supabase_db as ndb
+import supabase_storage
 import auth_service
 
 from models import ListenerSignup, ListenerLogin, ProgressSave, PlayEventCreate, LibrarySave
@@ -46,15 +47,22 @@ async def _require_listener(authorization: Optional[str] = Header(None)) -> dict
 def _resolve_audio_url(raw_url: str) -> Optional[str]:
     if not raw_url:
         return None
-    if raw_url.startswith("nhost-file:"):
-        file_id = raw_url[len("nhost-file:"):]
-        if file_id:
-            return f"/api/audio/stream-file/{file_id}"
-        return None
     if raw_url.startswith("data:audio/"):
         return raw_url
     if raw_url.startswith("http"):
         return raw_url
+    if raw_url.startswith("nhost-file:"):
+        try:
+            return supabase_storage.resolve_audio_url(raw_url)
+        except Exception as e:
+            logger.warning(f"Failed to resolve nhost-file URL '{raw_url}': {e}")
+            return None
+    if "/" in raw_url:
+        try:
+            return supabase_storage.resolve_audio_url(f"nhost-file:{raw_url}")
+        except Exception as e:
+            logger.warning(f"Failed to resolve bucket/path URL '{raw_url}': {e}")
+            return None
     return None
 
 
