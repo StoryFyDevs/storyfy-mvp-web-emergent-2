@@ -88,6 +88,31 @@ migration_backups/
 Audio files use `nhost-file:{bucket}/{path}` prefix convention throughout the codebase.
 `supabase_storage.resolve_audio_url()` converts this to a public HTTPS URL when needed.
 
+## Mobile Listener API
+
+The mobile API is served at `/api/mobile` and provides read-only access to published stories for listener apps (Expo/React Native).
+
+### Key endpoints
+- `POST /api/mobile/auth/signup` — Listener registration (Supabase Auth, role="listener")
+- `POST /api/mobile/auth/login` — Listener login
+- `GET /api/mobile/home` — Home feed (trending, latest, continue listening)
+- `GET /api/mobile/stories` — Browse with genre/language/sort filters
+- `GET /api/mobile/stories/{id}` — Story detail with episodes
+- `GET /api/mobile/episodes/{id}` — Episode playback (increments play count)
+- `GET /api/mobile/search?q=...` — Full-text search
+- `GET /api/mobile/genres` / `GET /api/mobile/languages` — Filter options
+- `POST /api/mobile/progress` — Save listening progress (auth required)
+- `GET /api/mobile/progress` — Get all progress (auth required)
+- `POST /api/mobile/analytics/play` — Track play events
+- Library: `POST/GET /api/mobile/me/library`, `DELETE /api/mobile/me/library/{story_id}`
+
+### Required tables (run `migration_backups/mobile_tables.sql` in Supabase SQL Editor)
+- `listening_progress` — Per-episode playback position
+- `listener_library` — Saved/bookmarked stories
+- `play_events` — Analytics events
+
+See `MOBILE_API_DOCS.md` for full API documentation.
+
 ## Notes
 
 - `emergentintegrations` in requirements.txt is not used in code — skip

@@ -1,6 +1,6 @@
 # StoryFy Mobile API Documentation
 
-**Base URL:** `https://script-compiler.preview.emergentagent.com/api/mobile`
+**Base URL:** `/api/mobile`
 
 ---
 

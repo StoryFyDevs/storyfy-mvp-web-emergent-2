@@ -42,6 +42,9 @@ TABLE_FIELDS = {
     "audio_assets": "id,asset_id,episode_id,story_id,created_by,asset_type,file_path,storage_file_id,duration_seconds,file_size,created_at",
     "tts_cache": "id,cache_id,text_hash,voice_id,provider,storage_file_id,duration_seconds,hit_count,created_at,updated_at",
     "pending_deletions": "id,deletion_id,resource_type,resource_id,storage_file_ids,scheduled_for,status,resolved_at,created_at",
+    "listening_progress": "id,progress_id,listener_id,episode_id,current_time,duration,created_at,updated_at",
+    "listener_library": "id,entry_id,listener_id,story_id,created_at",
+    "play_events": "id,event_id,listener_id,episode_id,story_id,event_type,position_seconds,created_at",
 }
 
 
