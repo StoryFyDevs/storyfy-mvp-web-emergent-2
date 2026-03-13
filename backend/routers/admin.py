@@ -402,7 +402,7 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
         except:
             project_state = {}
 
-    # --- Resolve clip URLs: replace stale Nhost refs with live Supabase URLs (or null) ---
+    # --- Resolve clip URLs: replace stale/dead refs with live Supabase URLs (or null) ---
     try:
         active_clips = await ndb.find_many(
             "audio_clips",
@@ -411,7 +411,7 @@ async def admin_episode_project(episode_id: str, authorization: Optional[str] = 
         )
 
         def _is_stale(url: str) -> bool:
-            """True for any old Nhost URL that will 404."""
+            """True for any dead storage URL that will 404."""
             if not url:
                 return False
             if "nhost.run" in url or "nhost.io" in url:

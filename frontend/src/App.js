@@ -23,7 +23,7 @@ import './App.css';
 function AppRouter() {
   const location = useLocation();
   
-  // Check URL fragment for session_id (legacy) or refreshToken (Nhost OAuth)
+  // Check URL fragment for Supabase auth callback or legacy session_id
   if (location.hash?.includes('session_id=') || 
       location.hash?.includes('refreshToken=') ||
       location.pathname === '/auth/callback') {

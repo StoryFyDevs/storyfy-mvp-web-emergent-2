@@ -26,10 +26,21 @@ STALE_CACHE_DAYS = 30
 
 
 def _extract_file_id(audio_url: str) -> str:
-    """Extract Nhost file_id from 'nhost-file:{file_id}' URL format."""
-    if audio_url and audio_url.startswith("nhost-file:"):
+    """Extract the storage file_id from an audio URL.
+
+    Handles:
+      - 'bucket/path'            — canonical Supabase format, returned as-is
+      - 'nhost-file:bucket/path' — legacy prefix, stripped and returned
+      - 'data:audio/...'         — embedded data, returns ''
+      - 'http...'                — external URL, returns ''
+    """
+    if not audio_url:
+        return ""
+    if audio_url.startswith("nhost-file:"):
         return audio_url[len("nhost-file:"):]
-    return ""
+    if audio_url.startswith("data:") or audio_url.startswith("http"):
+        return ""
+    return audio_url
 
 
 # ──────────────────────────────────────────────

@@ -107,6 +107,9 @@ async def login(credentials: UserLogin):
     if not profile.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is suspended")
 
+    if profile.get("role") == "listener":
+        raise HTTPException(status_code=403, detail="Listener accounts must use the mobile app")
+
     return {
         "user": UserPublic(**_profile_to_user(profile)),
         "token": access_token,

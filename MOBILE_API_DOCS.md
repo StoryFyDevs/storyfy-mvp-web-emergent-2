@@ -1,12 +1,16 @@
 # StoryFy Mobile API Documentation
 
-**Base URL:** `/api/mobile`
+**Base URL:** `https://<your-backend-domain>/api/mobile`
+
+> All endpoints are prefixed with `/api/mobile`. Do **not** use `/api/stories`, `/api/creator/*`, or any other path — those are for the creator web app only.
 
 ---
 
 ## Authentication
 
 Listeners can browse ALL content **without authentication**. Auth is required only for saving progress and getting personalized data (continue listening).
+
+Listener auth (`/api/mobile/auth/*`) is **completely separate** from creator auth (`/api/auth/*`). Creator accounts cannot log in via the mobile endpoints, and listener accounts cannot log in via the creator web app.
 
 ### Signup
 ```
@@ -15,6 +19,9 @@ Content-Type: application/json
 
 Body: { "email": "user@email.com", "password": "pass123", "name": "John" }
 Response: { "token": "jwt...", "listener_id": "listener_xxx", "email": "...", "name": "..." }
+
+Errors:
+  409 — Email already registered
 ```
 
 ### Login
@@ -24,9 +31,13 @@ Content-Type: application/json
 
 Body: { "email": "user@email.com", "password": "pass123" }
 Response: { "token": "jwt...", "listener_id": "listener_xxx", "email": "...", "name": "..." }
+
+Errors:
+  401 — Invalid email or password
+  403 — Not a listener account (creator accounts are rejected here)
 ```
 
-**Auth Header:** `Authorization: Bearer <token>`
+**Auth Header for authenticated endpoints:** `Authorization: Bearer <token>`
 
 ---
 
@@ -35,7 +46,7 @@ Response: { "token": "jwt...", "listener_id": "listener_xxx", "email": "...", "n
 ### 1. Home Feed
 ```
 GET /api/mobile/home
-Optional Header: Authorization: Bearer <token>  (for continue_listening)
+Optional Header: Authorization: Bearer <token>  (enables continue_listening)
 
 Response:
 {
@@ -68,8 +79,10 @@ Response:
   "story_id", "title", "description", "genre", "language", "cover_art_url", "story_type",
   "creator_name", "total_episodes", "total_duration_seconds", "play_count",
   "episodes": [{
-    "episode_id", "title", "episode_number", "duration", "audio_url", "has_audio",
-    "progress_seconds": 45.5   // only if authenticated
+    "episode_id", "title", "episode_number", "duration",
+    "audio_url": "https://...",  // direct Supabase Storage public URL — play directly
+    "has_audio": true,
+    "progress_seconds": 45.5    // only present if authenticated
   }]
 }
 ```
@@ -83,13 +96,16 @@ Response:
 {
   "episode_id", "title", "episode_number",
   "story_id", "story_title", "cover_art_url",
-  "audio_url": "https://...",  // streaming URL
+  "audio_url": "https://xyz.supabase.co/storage/v1/object/public/...",
   "duration": 120,
   "resume_at": 45.5,           // seconds (0 if no auth/progress)
   "next_episode_id": "ep_xxx", // null if last
   "prev_episode_id": "ep_xxx"  // null if first
 }
 ```
+
+> **Audio URLs** are direct Supabase Storage public HTTPS URLs. Pass them straight to your audio player — no authentication header needed, no proxying required.
+
 **Note:** Each call increments play_count.
 
 ### 5. Search
@@ -149,20 +165,36 @@ Response: { "message": "Event tracked" }
 
 ---
 
+## Auth Separation Summary
+
+| App | Login Endpoint | Role |
+|-----|---------------|------|
+| Expo mobile app | `POST /api/mobile/auth/login` | `listener` only |
+| Creator web app | `POST /api/auth/login` | `creator` or `admin` only |
+
+- A **creator** account trying to log in at `/api/mobile/auth/login` gets `403 Not a listener account`
+- A **listener** account trying to log in at `/api/auth/login` gets `403 Listener accounts must use the mobile app`
+
+---
+
 ## Test Credentials
 
 | Role | Email | Password |
 |------|-------|----------|
 | Listener | listener@test.com | listen123 |
-| Creator (admin panel) | admin@admin.com | admin123 |
+| Creator | admin@admin.com | admin12345 |
+
+---
 
 ## Error Codes
-- `401` — Authentication required (for progress endpoints)
+- `401` — Invalid credentials or missing token
+- `403` — Wrong account type for this login endpoint; or account suspended
 - `404` — Story/Episode not found
 - `409` — Email already registered (signup)
+- `429` — Too many attempts, wait a moment
 
 ## Notes
 - All timestamps are UTC ISO format
 - Pagination: `page` starts at 1, default `limit` is 20
-- Audio URLs may be base64 data URIs or external URLs depending on how creators uploaded
+- `audio_url` is always an absolute `https://` URL or `null` — never a relative path
 - Only content with `status: "published"` is returned — draft content is never exposed

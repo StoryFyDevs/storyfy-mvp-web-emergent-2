@@ -89,15 +89,17 @@ def compute_cache_key(text: str, voice_id: str, notes: str = "") -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-def _is_stale_nhost_url(url: str) -> bool:
-    """Return True for any old Nhost URL that will 404.
+def _is_stale_url(url: str) -> bool:
+    """Return True for any dead storage URL that will 404.
 
     Stale patterns:
-      - nhost-file:<UUID>        (bare UUID, no slash) → old Nhost storage ref
-      - https://*.nhost.run/...  → direct old Nhost HTTP URL
+      - https://*.nhost.run/...  → old Nhost HTTP URLs (service no longer active)
+      - https://*.nhost.io/...   → old Nhost HTTP URLs
+      - nhost-file:<UUID>        (bare UUID, no slash) → old Nhost-era ref with no Supabase path
     Valid patterns:
-      - nhost-file:storyfy-audio/scripts/...  (slash present) → Supabase path
-      - data:audio/wav;base64,...             → embedded audio
+      - bucket/path              → canonical Supabase storage format
+      - nhost-file:bucket/path   → legacy prefix wrapping a valid Supabase bucket/path
+      - data:audio/wav;base64,...→ embedded audio
     """
     if not url:
         return False
@@ -114,8 +116,8 @@ async def check_cache(cache_key: str) -> Optional[Dict]:
         row = await ndb.find_one("audio_cache", {"cache_key": cache_key})
         if row and row.get("audio_url"):
             audio_url = row["audio_url"]
-            if _is_stale_nhost_url(audio_url):
-                logger.info(f"Cache hit for {cache_key} has stale Nhost URL — treating as miss")
+            if _is_stale_url(audio_url):
+                logger.info(f"Cache hit for {cache_key} has stale URL — treating as miss")
                 return None
             asyncio.create_task(sc_storage.touch_clip(audio_url))
             return {"audio_url": audio_url, "duration_seconds": row.get("duration_seconds", 0), "cached": True}
@@ -212,7 +214,7 @@ async def _upload_wav(wav: bytes, filename: str, episode_id: str = "") -> str:
         fid = meta.get("id", "")
         if fid:
             logger.info(f"Uploaded {filename}: file_id={fid}, size={len(wav)}B")
-            return f"nhost-file:{fid}"
+            return fid
     except Exception as e:
         logger.warning(f"Upload failed for {filename}, falling back to base64: {e}")
     return f"data:audio/wav;base64,{base64.b64encode(wav).decode()}"

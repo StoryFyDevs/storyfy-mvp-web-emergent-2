@@ -188,13 +188,18 @@ function AudioStudio() {
     if (!url) return null;
     // base64 data URLs — use directly
     if (url.startsWith('data:')) return url;
-    // Supabase storage format: storage-file:{file_id}
+    // Already an absolute URL — use as-is
+    if (url.startsWith('http')) return url;
+    // Legacy prefix from old DB records — strip and proxy through backend
     if (url.startsWith('nhost-file:')) {
       const fileId = url.replace('nhost-file:', '');
       return `/api/audio/stream-file/${fileId}`;
     }
-    // Any other URL — use as-is
-    return url;
+    // Canonical Supabase storage format: 'bucket/path'
+    if (url.includes('/')) {
+      return `/api/audio/stream-file/${url}`;
+    }
+    return null;
   }, []);
 
   // ========== AUDIO BUFFER LOADING (Web Audio API) ==========

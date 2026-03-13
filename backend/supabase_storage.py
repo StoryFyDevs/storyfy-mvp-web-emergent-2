@@ -46,6 +46,7 @@ async def upload_file(filename: str, content: bytes, content_type: str, bucket_i
     """
     Upload a file to Supabase Storage.
     Returns a metadata dict with id, name, bucketId, mimeType, size, publicUrl.
+    The returned 'id' is in 'bucket/path' format (e.g. 'storyfy-audio/scripts/ep_x/file.wav').
     """
     if bucket_id is None or bucket_id == "default":
         bucket_id = BUCKET_AUDIO
@@ -66,7 +67,7 @@ async def upload_file(filename: str, content: bytes, content_type: str, bucket_i
             file_options={"content-type": content_type, "upsert": "true"},
         )
 
-        # Build a file_id that encodes bucket + path so we can retrieve/delete later
+        # file_id encodes bucket + path so we can retrieve/delete later
         file_id = f"{bucket_id}/{path}"
         public_url = sc.storage.from_(bucket_id).get_public_url(path)
 
@@ -132,8 +133,10 @@ async def delete_file(file_id: str) -> bool:
 
 
 def _parse_file_id(file_id: str) -> tuple[str, str]:
-    """Parse 'bucket/path' format file_id back into (bucket, path)."""
-    # Legacy UUID-only file_id format — map to default bucket
+    """Parse 'bucket/path' format file_id back into (bucket, path).
+    Also handles legacy 'nhost-file:bucket/path' prefix from old DB records."""
+    if file_id.startswith("nhost-file:"):
+        file_id = file_id[len("nhost-file:"):]
     if "/" not in file_id:
         return BUCKET_AUDIO, file_id
     parts = file_id.split("/", 1)
@@ -141,20 +144,34 @@ def _parse_file_id(file_id: str) -> tuple[str, str]:
 
 
 def audio_url_from_file_id(file_id: str) -> str:
-    """Convert a storage file_id to the nhost-file: URL format used throughout the codebase."""
-    return f"nhost-file:{file_id}"
+    """Return the canonical audio URL stored in the database for a given file_id.
+    Format: 'bucket/path' (e.g. 'storyfy-audio/scripts/ep_x/file.wav')."""
+    return file_id
 
 
 def resolve_audio_url(audio_url: str) -> str:
     """
-    Convert an audio_url (nhost-file: prefix or https:) to a public HTTPS URL.
-    Called by the frontend proxy endpoint.
+    Convert a stored audio_url to a public HTTPS Supabase Storage URL.
+
+    Handles:
+      - 'bucket/path'              — current canonical format
+      - 'nhost-file:bucket/path'   — legacy prefix from old DB records (prefix stripped)
+      - 'https://...'              — already an absolute URL, returned as-is
+      - ''                         — returns ''
+
+    Returns '' for dead/stale refs that cannot be resolved:
+      - bare UUID with no slash    — old Nhost-only IDs with no Supabase bucket path
+      - nhost-file:<UUID>          — same, wrapped with legacy prefix
     """
     if not audio_url:
         return ""
-    if audio_url.startswith("nhost-file:"):
-        file_id = audio_url[len("nhost-file:"):]
-        sc = _get_client()
-        bucket, path = _parse_file_id(file_id)
-        return sc.storage.from_(bucket).get_public_url(path)
-    return audio_url
+    if audio_url.startswith("http"):
+        return audio_url
+    # Strip legacy prefix if present
+    file_id = audio_url[len("nhost-file:"):] if audio_url.startswith("nhost-file:") else audio_url
+    # Bare UUID with no slash — this is a dead old Nhost ref with no Supabase equivalent
+    if "/" not in file_id:
+        return ""
+    sc = _get_client()
+    bucket, path = _parse_file_id(file_id)
+    return sc.storage.from_(bucket).get_public_url(path)

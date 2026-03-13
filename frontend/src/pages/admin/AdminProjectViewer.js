@@ -115,15 +115,20 @@ function AdminProjectViewer() {
     return audioContextRef.current;
   }, []);
 
-  // Mirror AudioStudio's resolveAudioUrl exactly — relative path for stream-file
   const resolveAudioUrl = useCallback((url) => {
     if (!url) return null;
     if (url.startsWith('data:')) return url;
+    if (url.startsWith('http')) return url;
+    // Legacy prefix from old DB records
     if (url.startsWith('nhost-file:')) {
       const fileId = url.replace('nhost-file:', '');
       return `/api/audio/stream-file/${fileId}`;
     }
-    return url;
+    // Canonical Supabase storage format: 'bucket/path'
+    if (url.includes('/')) {
+      return `/api/audio/stream-file/${url}`;
+    }
+    return null;
   }, []);
 
   // Mirror AudioStudio's loadAudioBuffer — silently return null on failure, no visual marking

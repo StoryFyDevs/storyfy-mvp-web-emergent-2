@@ -45,25 +45,27 @@ async def _require_listener(authorization: Optional[str] = Header(None)) -> dict
 
 
 def _resolve_audio_url(raw_url: str) -> Optional[str]:
+    """Convert a stored audio_url to an absolute HTTPS URL usable by mobile clients.
+
+    Handles:
+      - 'bucket/path'             — Supabase storage path → public URL
+      - 'nhost-file:bucket/path'  — legacy prefix → public URL (stripped and resolved)
+      - 'https://...'             — already absolute, returned as-is
+      - 'data:audio/...'          — embedded base64, returned as-is
+      - bare UUID / dead ref      — returns None
+    """
     if not raw_url:
         return None
     if raw_url.startswith("data:audio/"):
         return raw_url
     if raw_url.startswith("http"):
         return raw_url
-    if raw_url.startswith("nhost-file:"):
-        try:
-            return supabase_storage.resolve_audio_url(raw_url)
-        except Exception as e:
-            logger.warning(f"Failed to resolve nhost-file URL '{raw_url}': {e}")
-            return None
-    if "/" in raw_url:
-        try:
-            return supabase_storage.resolve_audio_url(f"nhost-file:{raw_url}")
-        except Exception as e:
-            logger.warning(f"Failed to resolve bucket/path URL '{raw_url}': {e}")
-            return None
-    return None
+    try:
+        url = supabase_storage.resolve_audio_url(raw_url)
+        return url if url else None
+    except Exception as e:
+        logger.warning(f"Failed to resolve audio URL '{raw_url}': {e}")
+        return None
 
 
 async def _enrich_story(story: dict) -> dict:
