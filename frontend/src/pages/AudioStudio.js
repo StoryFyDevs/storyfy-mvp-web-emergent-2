@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Slider } from '../components/ui/slider';
-import { Plus, Upload, Play, Pause, Square, Volume2, Mic2, Music, X, Trash2, SkipBack, Scissors, Copy, ZoomIn, ZoomOut, Save, Bug, Edit3, AlertCircle, Check, Lock, Download } from 'lucide-react';
+import { Plus, Upload, Play, Pause, Square, Volume2, Mic2, Music, X, Trash2, SkipBack, Scissors, Copy, ZoomIn, ZoomOut, Save, Bug, Edit3, AlertCircle, Check, Lock, Download, Globe } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ============================================================================
@@ -1829,6 +1829,29 @@ function AudioStudio() {
     }
   }, [selectedEpisode]);
 
+  // ========== PUBLISH HANDLER ==========
+  const handlePublishEpisode = useCallback(async () => {
+    if (!selectedEpisode) return;
+    try {
+      const res = await fetch(
+        `${process.env.REACT_APP_BACKEND_URL}/api/creator/episodes/${selectedEpisode.episode_id}/publish`,
+        { method: 'POST', credentials: 'include', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to publish');
+      }
+      const data = await res.json();
+      setSelectedEpisode(prev => prev ? { ...prev, isPublished: true } : prev);
+      setEpisodes(prev => prev.map(ep =>
+        ep.episode_id === selectedEpisode.episode_id ? { ...ep, isPublished: true } : ep
+      ));
+      toast.success('Episode published! It is now available to listeners.');
+    } catch (error) {
+      toast.error(error.message || 'Failed to publish episode');
+    }
+  }, [selectedEpisode]);
+
   // ========== RENDER UI HELPERS ==========
   // Generate time ruler markers
   const timeRulerMarkers = useMemo(() => {
@@ -2117,6 +2140,18 @@ function AudioStudio() {
               <Download className="w-4 h-4 mr-2" />
               {isRendering ? `Rendering ${renderProgress}%` : (selectedEpisode?.finalAudioUrl ? 'Re-render Audio' : 'Render Final Audio')}
             </Button>
+
+            {selectedEpisode?.finalAudioUrl && !isLocked && (
+              <Button
+                onClick={handlePublishEpisode}
+                disabled={!selectedEpisode || isRendering}
+                className="bg-amber-500 text-obsidian hover:bg-amber-400"
+                data-testid="publish-episode-button"
+              >
+                <Globe className="w-4 h-4 mr-2" />
+                Publish Episode
+              </Button>
+            )}
 
             {lastSaved && (
               <span className="text-xs text-text-secondary">
