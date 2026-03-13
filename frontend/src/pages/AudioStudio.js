@@ -1358,13 +1358,15 @@ function AudioStudio() {
       setTracks(loadedTracks);
       setIsDirty(false); // Reset dirty state after load
 
-      // Preload audio buffers for all clips
+      // Preload audio buffers in the background — do NOT await this,
+      // so the loading overlay clears immediately while buffers load in parallel.
       const allClips = loadedTracks.flatMap(track => track.clips);
-      for (const clip of allClips) {
-        if (clip.url) {
-          await loadAudioBuffer(clip);
-        }
-      }
+      Promise.all(
+        allClips.filter(clip => clip.url).map(clip => loadAudioBuffer(clip))
+      ).then(results => {
+        const loaded = results.filter(Boolean).length;
+        console.log(`[Audio] Preloaded ${loaded}/${allClips.length} clips`);
+      });
 
     } catch (error) {
       console.error('[Project] Load error:', error);
