@@ -39,6 +39,11 @@ Import StoryFy app from GitHub - a full-stack audio storytelling platform for cr
 - Frontend: Login page, routing, auth redirects, signup page all passing
 - Minor: Supabase rejects @test.com during new signup (built-in email validation)
 
+## Changes Applied (Jan 2026)
+- Confirmed all existing Supabase Auth users with emails via admin API
+- Rewrote `register_supabase_user` to use Supabase Admin API (`admin.create_user` with `email_confirm: True`) so new signups are auto-confirmed — no email verification needed
+- Both web signup and mobile listener signup benefit from the change
+
 ## Next Action Items
 - None requested yet - awaiting user feedback
 

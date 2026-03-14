@@ -16,8 +16,10 @@ logger = logging.getLogger("supabase_auth")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 _auth_client: Client = None
+_admin_client: Client = None
 
 
 def _get_client() -> Client:
@@ -29,26 +31,41 @@ def _get_client() -> Client:
     return _auth_client
 
 
+def _get_admin_client() -> Client:
+    global _admin_client
+    if _admin_client is None:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
+        _admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return _admin_client
+
+
 async def register_supabase_user(email: str, password: str, display_name: str = "", role: str = "creator"):
-    """Register a new user via Supabase Auth."""
-    client = _get_client()
+    """Register a new user via Supabase Admin API (auto-confirms email, no verification needed)."""
+    admin_client = _get_admin_client()
+    anon_client = _get_client()
     try:
-        response = client.auth.sign_up({
+        # Use admin API to create user with email pre-confirmed
+        user = admin_client.auth.admin.create_user({
             "email": email,
             "password": password,
-            "options": {
-                "data": {
-                    "display_name": display_name or email.split("@")[0],
-                    "role": role,
-                }
+            "email_confirm": True,
+            "user_metadata": {
+                "display_name": display_name or email.split("@")[0],
+                "role": role,
             }
         })
-        return response
+        # Now sign in to get a session token
+        session_response = anon_client.auth.sign_in_with_password({
+            "email": email,
+            "password": password,
+        })
+        return session_response
     except HTTPException:
         raise
     except Exception as e:
         msg = str(e)
-        if "already registered" in msg.lower() or "already been registered" in msg.lower():
+        if "already registered" in msg.lower() or "already been registered" in msg.lower() or "already exists" in msg.lower():
             raise HTTPException(status_code=400, detail="Email already registered")
         if "429" in msg or "rate" in msg.lower():
             raise HTTPException(status_code=429, detail="Too many signup attempts. Please wait a minute and try again.")
