@@ -3,60 +3,39 @@
 import requests
 import json
 import sys
-import time
 from datetime import datetime
 from typing import Dict, Any, Optional
 
 class StoryFyAPITester:
-    def __init__(self, base_url="https://code-importer-41.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://68b384ad-4d01-42fe-8e27-a4ed61d0429e.preview.emergentagent.com"):
         self.base_url = base_url
         self.token = None
-        self.user_data = None
+        self.admin_token = None
         self.tests_run = 0
         self.tests_passed = 0
-        self.current_story_id = None
-        self.current_episode_id = None
-        self.current_character_id = None
-        self.current_asset_id = None
 
     def log(self, message):
         """Log test messages"""
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
 
     def run_test(self, name: str, method: str, endpoint: str, expected_status: int, 
-                 data: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None,
-                 files: Optional[Dict[str, Any]] = None) -> tuple[bool, Dict[str, Any]]:
+                 data: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> tuple[bool, Dict[str, Any]]:
         """Run a single API test"""
         url = f"{self.base_url}/{endpoint}"
         test_headers = {'Content-Type': 'application/json'}
         
         if headers:
             test_headers.update(headers)
-        
-        if self.token:
-            test_headers['Authorization'] = f'Bearer {self.token}'
 
         self.tests_run += 1
         self.log(f"🔍 Testing {name}...")
+        self.log(f"   URL: {url}")
         
         try:
             if method == 'GET':
                 response = requests.get(url, headers=test_headers, timeout=10)
             elif method == 'POST':
-                if files:
-                    # Remove Content-Type header for multipart/form-data requests
-                    test_headers.pop('Content-Type', None)
-                    response = requests.post(url, headers=test_headers, data=data, files=files, timeout=30)
-                else:
-                    response = requests.post(url, headers=test_headers, json=data, timeout=30)
-            elif method == 'PUT':
-                if files:
-                    test_headers.pop('Content-Type', None)
-                    response = requests.put(url, headers=test_headers, data=data, files=files, timeout=30)
-                else:
-                    response = requests.put(url, headers=test_headers, json=data, timeout=30)
-            elif method == 'DELETE':
-                response = requests.delete(url, headers=test_headers, timeout=10)
+                response = requests.post(url, headers=test_headers, json=data, timeout=30)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
@@ -66,8 +45,7 @@ class StoryFyAPITester:
                 self.log(f"✅ Passed - Status: {response.status_code}")
             else:
                 self.log(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
-                if response.text:
-                    self.log(f"Response: {response.text[:200]}...")
+                self.log(f"Response: {response.text[:500]}...")
 
             try:
                 response_data = response.json() if response.text else {}
@@ -83,315 +61,133 @@ class StoryFyAPITester:
             self.log(f"❌ Failed - Error: {str(e)}")
             return False, {"error": str(e)}
 
-    def test_auth_signup(self, name: str, email: str, password: str) -> bool:
-        """Test user signup"""
+    def test_health_endpoint(self) -> bool:
+        """Test health endpoint"""
+        success, response = self.run_test(
+            "Health Endpoint",
+            "GET",
+            "api/health",
+            200
+        )
+        
+        if success and response.get('status') == 'ok':
+            self.log(f"✅ Health check passed: {response}")
+            return True
+        else:
+            self.log(f"❌ Health check failed. Response: {response}")
+            return False
+
+    def test_creator_login(self) -> bool:
+        """Test creator login with provided credentials"""
+        success, response = self.run_test(
+            "Creator Login",
+            "POST",
+            "api/auth/login",
+            200,
+            data={"email": "testuser@test.com", "password": "password123"}
+        )
+        
+        if success and 'token' in response and 'user' in response:
+            self.token = response['token']
+            self.log(f"✅ Creator login successful. User: {response['user'].get('email', 'N/A')}")
+            return True
+        else:
+            self.log(f"❌ Creator login failed. Response: {response}")
+            return False
+
+    def test_admin_login(self) -> bool:
+        """Test admin login with provided credentials"""
+        success, response = self.run_test(
+            "Admin Login", 
+            "POST",
+            "api/admin-9821/login",
+            200,
+            data={"email": "admin@admin.com", "password": "admin12345"}
+        )
+        
+        if success and 'token' in response:
+            self.admin_token = response['token']
+            self.log(f"✅ Admin login successful")
+            return True
+        else:
+            self.log(f"❌ Admin login failed. Response: {response}")
+            return False
+
+    def test_signup_api(self) -> bool:
+        """Test signup API with a test user"""
+        test_email = f"testuser_{datetime.now().strftime('%Y%m%d_%H%M%S')}@test.com"
         success, response = self.run_test(
             "User Signup",
-            "POST",
-            "auth/signup",
+            "POST", 
+            "api/auth/signup",
             200,
-            data={"name": name, "email": email, "password": password}
+            data={
+                "name": "Test User",
+                "email": test_email,
+                "password": "testpass123"
+            }
         )
         
-        if success and 'token' in response and 'user' in response:
-            self.token = response['token']
-            self.user_data = response['user']
-            self.log(f"✅ User created: {self.user_data['name']} ({self.user_data['email']})")
+        # Signup can return 200 even if it requires verification
+        if success:
+            if 'token' in response:
+                self.log(f"✅ Signup successful with immediate login")
+            elif response.get('requires_verification'):
+                self.log(f"✅ Signup successful but requires email verification")
+            else:
+                self.log(f"✅ Signup successful: {response}")
             return True
-        return False
-
-    def test_auth_login(self, email: str, password: str) -> bool:
-        """Test user login"""
-        success, response = self.run_test(
-            "User Login",
-            "POST",
-            "auth/login",
-            200,
-            data={"email": email, "password": password}
-        )
-        
-        if success and 'token' in response and 'user' in response:
-            self.token = response['token']
-            self.user_data = response['user']
-            self.log(f"✅ User logged in: {self.user_data['name']}")
-            return True
-        return False
+        else:
+            self.log(f"❌ Signup failed. Response: {response}")
+            return False
 
     def test_auth_me(self) -> bool:
-        """Test get current user"""
+        """Test get current user endpoint"""
+        if not self.token:
+            self.log("❌ No token available for /me test")
+            return False
+
+        headers = {'Authorization': f'Bearer {self.token}'}
         success, response = self.run_test(
-            "Get Current User",
+            "Get Current User (/me)",
             "GET",
-            "auth/me",
-            200
+            "api/auth/me", 
+            200,
+            headers=headers
         )
         
         if success and 'user_id' in response:
-            self.log(f"✅ Current user: {response.get('name', 'N/A')}")
+            self.log(f"✅ Auth /me successful. User: {response.get('email', 'N/A')}")
             return True
-        return False
-
-    def test_story_creation(self, title: str, genre: str, description: str) -> bool:
-        """Test story creation"""
-        success, response = self.run_test(
-            "Create Story",
-            "POST",
-            "stories",
-            200,
-            data={
-                "title": title,
-                "genre": genre,
-                "language": "English",
-                "description": description,
-                "story_type": "story"
-            }
-        )
-        
-        if success and 'story_id' in response:
-            self.current_story_id = response['story_id']
-            self.log(f"✅ Story created: {response['title']} (ID: {self.current_story_id})")
-            return True
-        return False
-
-    def test_get_stories(self) -> bool:
-        """Test get stories"""
-        success, response = self.run_test(
-            "Get Stories",
-            "GET",
-            "stories",
-            200
-        )
-        
-        if success and isinstance(response, list):
-            self.log(f"✅ Retrieved {len(response)} stories")
-            return True
-        return False
-
-    def test_episode_creation(self, title: str, order: int) -> bool:
-        """Test episode creation"""
-        if not self.current_story_id:
-            self.log("❌ No story ID available for episode creation")
+        else:
+            self.log(f"❌ Auth /me failed. Response: {response}")
             return False
-            
-        success, response = self.run_test(
-            "Create Episode",
-            "POST",
-            "episodes",
-            200,
-            data={
-                "story_id": self.current_story_id,
-                "title": title,
-                "order": order,
-                "script": "Test script content"
-            }
-        )
-        
-        if success and 'episode_id' in response:
-            self.current_episode_id = response['episode_id']
-            self.log(f"✅ Episode created: {response['title']} (ID: {self.current_episode_id})")
-            return True
-        return False
 
-    def test_get_episodes(self) -> bool:
-        """Test get episodes for story"""
-        if not self.current_story_id:
-            self.log("❌ No story ID available for getting episodes")
-            return False
-            
-        success, response = self.run_test(
-            "Get Episodes",
-            "GET",
-            f"episodes/story/{self.current_story_id}",
-            200
-        )
+    def run_focused_tests(self):
+        """Run focused tests for the specific requirements"""
+        self.log("🚀 Starting StoryFy API focused testing...")
+        self.log("Testing specific features requested in the review:")
         
-        if success and isinstance(response, list):
-            self.log(f"✅ Retrieved {len(response)} episodes")
-            return True
-        return False
-
-    def test_character_creation(self, name: str) -> bool:
-        """Test character creation"""
-        if not self.current_story_id:
-            self.log("❌ No story ID available for character creation")
-            return False
-            
-        success, response = self.run_test(
-            "Create Character",
-            "POST",
-            "characters",
-            200,
-            data={
-                "story_id": self.current_story_id,
-                "name": name,
-                "voice_id": None,
-                "voice_settings": {
-                    "stability": 0.5,
-                    "similarity_boost": 0.75,
-                    "style": 0.0
-                }
-            }
-        )
+        # Test 1: Health endpoint
+        self.log("\n📋 1. HEALTH ENDPOINT TEST")
+        self.test_health_endpoint()
         
-        if success and 'character_id' in response:
-            self.current_character_id = response['character_id']
-            self.log(f"✅ Character created: {response['name']} (ID: {self.current_character_id})")
-            return True
-        return False
-
-    def test_get_characters(self) -> bool:
-        """Test get characters for story"""
-        if not self.current_story_id:
-            self.log("❌ No story ID available for getting characters")
-            return False
-            
-        success, response = self.run_test(
-            "Get Characters",
-            "GET",
-            f"characters/story/{self.current_story_id}",
-            200
-        )
+        # Test 2: Creator login
+        self.log("\n🔐 2. CREATOR LOGIN TEST")
+        creator_login_success = self.test_creator_login()
         
-        if success and isinstance(response, list):
-            self.log(f"✅ Retrieved {len(response)} characters")
-            return True
-        return False
-
-    def test_get_voices(self) -> bool:
-        """Test get ElevenLabs voices"""
-        success, response = self.run_test(
-            "Get ElevenLabs Voices",
-            "GET",
-            "voices",
-            200
-        )
-        
-        if success and 'voices' in response and isinstance(response['voices'], list):
-            self.log(f"✅ Retrieved {len(response['voices'])} voices from ElevenLabs")
-            return True
-        return False
-
-    def test_tts_generation(self) -> bool:
-        """Test TTS generation with ElevenLabs"""
-        # First get voices to use one
-        voices_success, voices_response = self.run_test(
-            "Get Voices for TTS",
-            "GET",
-            "voices",
-            200
-        )
-        
-        if not voices_success or not voices_response.get('voices'):
-            self.log("❌ No voices available for TTS test")
-            return False
-            
-        # Use the first available voice
-        voice_id = voices_response['voices'][0]['voice_id']
-        
-        success, response = self.run_test(
-            "Generate TTS",
-            "POST",
-            "tts/generate",
-            200,
-            data={
-                "text": "Hello, this is a test of the text-to-speech functionality.",
-                "voice_id": voice_id,
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "style": 0.0,
-                "use_speaker_boost": True
-            }
-        )
-        
-        if success and 'audio_url' in response:
-            self.log(f"✅ TTS generated successfully with voice {voice_id}")
-            return True
-        return False
-
-    def test_audio_assets(self) -> bool:
-        """Test get audio assets"""
-        if not self.current_story_id:
-            self.log("❌ No story ID available for getting audio assets")
-            return False
-            
-        success, response = self.run_test(
-            "Get Audio Assets",
-            "GET",
-            f"audio/assets/{self.current_story_id}",
-            200
-        )
-        
-        if success and isinstance(response, list):
-            self.log(f"✅ Retrieved {len(response)} audio assets")
-            return True
-        return False
-
-    def test_logout(self) -> bool:
-        """Test user logout"""
-        success, response = self.run_test(
-            "User Logout",
-            "POST",
-            "auth/logout",
-            200
-        )
-        
-        if success:
-            self.token = None
-            self.user_data = None
-            self.log("✅ User logged out successfully")
-            return True
-        return False
-
-    def run_comprehensive_tests(self):
-        """Run all API tests"""
-        self.log("🚀 Starting StoryFy API comprehensive testing...")
-        
-        # Test data
-        timestamp = int(time.time())
-        test_email = f"test_user_{timestamp}@storyfy.com"
-        test_password = "TestPass123!"
-        test_name = f"Test User {timestamp}"
-        
-        # Authentication Tests
-        self.log("\n📋 AUTHENTICATION TESTS")
-        self.test_auth_signup(test_name, test_email, test_password)
-        
-        if self.token:
+        # Test 3: Auth /me endpoint (if login successful)
+        if creator_login_success:
+            self.log("\n👤 3. AUTH ME TEST")
             self.test_auth_me()
-            
-            # Content Creation Tests
-            self.log("\n📚 STORY MANAGEMENT TESTS")
-            self.test_story_creation("Test Story", "fiction", "A test story for API validation")
-            self.test_get_stories()
-            
-            # Episode Tests
-            self.log("\n🎬 EPISODE MANAGEMENT TESTS")
-            self.test_episode_creation("Episode 1: The Beginning", 1)
-            self.test_get_episodes()
-            
-            # Character Tests
-            self.log("\n👤 CHARACTER MANAGEMENT TESTS")
-            self.test_character_creation("Test Character")
-            self.test_get_characters()
-            
-            # ElevenLabs Integration Tests
-            self.log("\n🔊 ELEVENLABS INTEGRATION TESTS")
-            self.test_get_voices()
-            # Give ElevenLabs API some time between requests
-            time.sleep(2)
-            self.test_tts_generation()
-            
-            # Audio Asset Tests
-            self.log("\n🎵 AUDIO ASSET TESTS")
-            self.test_audio_assets()
-            
-            # Cleanup
-            self.log("\n🧹 CLEANUP TESTS")
-            self.test_logout()
         
-        # Test login with existing user
-        self.log("\n🔐 LOGIN TEST WITH EXISTING USER")
-        self.test_auth_login(test_email, test_password)
+        # Test 4: Signup API
+        self.log("\n📝 4. SIGNUP API TEST")
+        self.test_signup_api()
+        
+        # Test 5: Admin login
+        self.log("\n🛡️  5. ADMIN LOGIN TEST")
+        self.test_admin_login()
         
         self.print_results()
 
@@ -403,7 +199,8 @@ class StoryFyAPITester:
         self.log(f"Tests run: {self.tests_run}")
         self.log(f"Tests passed: {self.tests_passed}")
         self.log(f"Tests failed: {self.tests_run - self.tests_passed}")
-        self.log(f"Success rate: {(self.tests_passed/self.tests_run*100):.1f}%" if self.tests_run > 0 else "0.0%")
+        success_rate = (self.tests_passed/self.tests_run*100) if self.tests_run > 0 else 0
+        self.log(f"Success rate: {success_rate:.1f}%")
         
         if self.tests_passed == self.tests_run:
             self.log("🎉 ALL TESTS PASSED!")
@@ -415,7 +212,7 @@ class StoryFyAPITester:
 def main():
     """Main function to run the tests"""
     tester = StoryFyAPITester()
-    success = tester.run_comprehensive_tests()
+    success = tester.run_focused_tests()
     return 0 if success else 1
 
 if __name__ == "__main__":
