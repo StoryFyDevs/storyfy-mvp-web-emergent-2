@@ -11,7 +11,7 @@ import requests
 import os
 import re
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://script-compiler.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://code-importer-41.preview.emergentagent.com').rstrip('/')
 
 # Known valid file_id from the problem statement
 KNOWN_VALID_FILE_ID = "e50c796e-cb7e-4c52-9fd0-fb2017046d8b"

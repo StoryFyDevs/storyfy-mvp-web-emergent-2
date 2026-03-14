@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 class StoryFyAPITester:
-    def __init__(self, base_url="https://script-compiler.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://code-importer-41.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.token = None
         self.user_data = None
