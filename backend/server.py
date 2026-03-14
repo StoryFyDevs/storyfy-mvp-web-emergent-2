@@ -57,11 +57,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="StoryFy API", lifespan=lifespan)
 
-origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+if cors_origins_env:
+    origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+else:
+    origins = []
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins != ["*"] else ["*"],
-    allow_credentials=True,
+    allow_origins=origins if origins else ["*"],
+    allow_credentials=bool(origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
