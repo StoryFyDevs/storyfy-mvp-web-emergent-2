@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { API_BASE } from '../lib/config';
 import { toast } from 'sonner';
 import supabase from '../lib/supabase';
 
@@ -19,7 +20,7 @@ function Signup() {
     setLoading(true);
 
     try {
-      const response = await fetch(`/api/auth/signup`, {
+      const response = await fetch(`${API_BASE}/api/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password })

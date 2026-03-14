@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { API_BASE } from '../lib/config';
 import { toast } from 'sonner';
 import { Shield, Mic2 } from 'lucide-react';
 import supabase from '../lib/supabase';
@@ -30,8 +31,8 @@ function Login() {
     setLoading(true);
 
     const endpoint = mode === 'admin'
-      ? `/api/admin-9821/login`
-      : `/api/auth/login`;
+      ? `${API_BASE}/api/admin-9821/login`
+      : `${API_BASE}/api/auth/login`;
 
     try {
       const response = await fetch(endpoint, {

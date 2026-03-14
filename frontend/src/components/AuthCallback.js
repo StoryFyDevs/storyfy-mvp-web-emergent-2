@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import supabase from '../lib/supabase';
+import { API_BASE } from '../lib/config';
 
 function AuthCallback() {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ function AuthCallback() {
           localStorage.setItem('token', accessToken);
 
           try {
-            await fetch(`/api/auth/oauth-sync`, {
+            await fetch(`${API_BASE}/api/auth/oauth-sync`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
