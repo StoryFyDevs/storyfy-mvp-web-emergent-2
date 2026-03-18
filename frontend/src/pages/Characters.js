@@ -56,7 +56,7 @@ function Characters() {
 
   const fetchGenerationStatus = async () => {
     try {
-      const res = await fetch(`${base}/api/generation/status`, { credentials: 'include', headers });
+      const res = await fetch(`${base}/api/generation/status`, { headers });
       if (res.ok) {
         const data = await res.json();
         setGenerationStatus(data);
@@ -68,14 +68,14 @@ function Characters() {
 
   const fetchCredits = async () => {
     try {
-      const res = await fetch(`${base}/api/credits`, { credentials: 'include', headers });
+      const res = await fetch(`${base}/api/credits`, { headers });
       if (res.ok) setCredits(await res.json());
     } catch (e) { console.error(e); }
   };
 
   const fetchSampleStatus = async () => {
     try {
-      const res = await fetch(`${base}/api/voices/samples`, { credentials: 'include', headers });
+      const res = await fetch(`${base}/api/voices/samples`, { headers });
       if (res.ok) {
         const data = await res.json();
         setSampleAvailability(data.samples || {});
@@ -103,7 +103,7 @@ function Characters() {
 
     setLoadingPreview(voiceId);
     try {
-      const res = await fetch(`${base}/api/voices/preview/${voiceId}`, { credentials: 'include', headers });
+      const res = await fetch(`${base}/api/voices/preview/${voiceId}`, { headers });
       if (!res.ok) throw new Error('Sample not available');
       const data = await res.json();
       previewCacheRef.current[voiceId] = data.audio_url;
@@ -145,7 +145,7 @@ function Characters() {
     setAuditionLoading(true);
     try {
       const res = await fetch(`${base}/api/tts/audition`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ voice_id: auditionVoice, text: auditionText.trim() })
       });
@@ -201,7 +201,7 @@ function Characters() {
     e.preventDefault();
     try {
       const res = await fetch(`${base}/api/characters`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ story_id: storyId, name: charForm.name, voice_id: charForm.voice_id })
       });
@@ -219,7 +219,7 @@ function Characters() {
     if (!editingCharacter) return;
     try {
       const res = await fetch(`${base}/api/characters/${editingCharacter.character_id}`, {
-        method: 'PUT', credentials: 'include',
+        method: 'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ story_id: storyId, name: charForm.name, voice_id: charForm.voice_id })
       });
@@ -235,7 +235,7 @@ function Characters() {
 
   const handleDeleteCharacter = async (charId) => {
     try {
-      const res = await fetch(`${base}/api/characters/${charId}`, { method: 'DELETE', credentials: 'include', headers });
+      const res = await fetch(`${base}/api/characters/${charId}`, { method: 'DELETE', headers });
       if (!res.ok) throw new Error('Failed');
       setCharacters(characters.filter(c => c.character_id !== charId));
       toast.success('Character deleted');

@@ -63,13 +63,24 @@ if cors_origins_env:
 else:
     origins = []
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins if origins else ["*"],
-    allow_credentials=bool(origins),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if origins:
+    # Specific origins — use exact list with credentials
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # No specific origins — use regex to reflect any origin (allows credentials)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=".*",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Import and register routers
 from routers.auth import auth_router

@@ -53,7 +53,7 @@ function Dashboard() {
   const fetchUsage = async () => {
     try {
       const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/usage/me`, {
-        credentials: 'include', headers: authHeaders
+        headers: authHeaders
       });
       if (res.ok) setUsage(await res.json());
     } catch (e) { /* silent */ }
@@ -62,7 +62,7 @@ function Dashboard() {
   const fetchStories = async () => {
     try {
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/stories`, {
-        credentials: 'include', headers: authHeaders
+        headers: authHeaders
       });
       if (!response.ok) throw new Error('Failed to fetch stories');
       setStories(await response.json());
@@ -77,7 +77,7 @@ function Dashboard() {
     e.preventDefault();
     try {
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/stories`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(newStory)
       });
@@ -99,7 +99,7 @@ function Dashboard() {
     setPublishingId(storyId);
     try {
       const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/creator/stories/${storyId}/${action}`, {
-        method: 'POST', credentials: 'include', headers: authHeaders
+        method: 'POST', headers: authHeaders
       });
       if (!res.ok) throw new Error(`Failed to ${action}`);
       const data = await res.json();
@@ -114,7 +114,7 @@ function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/logout`, { method: 'POST' });
       localStorage.removeItem('token');
       navigate('/login');
     } catch (error) {

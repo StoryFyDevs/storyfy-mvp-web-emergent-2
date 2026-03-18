@@ -32,7 +32,7 @@ export function StudioProvider({ children, storyId }) {
 
   const fetchEpisodesData = useCallback(async () => {
     const res = await fetch(`${base}/api/episodes/story/${storyId}`, {
-      credentials: 'include', headers: getHeaders()
+      headers: getHeaders()
     });
     if (!res.ok) throw new Error('Failed to fetch episodes');
     return res.json();
@@ -40,7 +40,7 @@ export function StudioProvider({ children, storyId }) {
 
   const fetchCharactersData = useCallback(async () => {
     const res = await fetch(`${base}/api/characters/story/${storyId}`, {
-      credentials: 'include', headers: getHeaders()
+      headers: getHeaders()
     });
     if (!res.ok) throw new Error('Failed to fetch characters');
     return res.json();
@@ -49,7 +49,7 @@ export function StudioProvider({ children, storyId }) {
   const fetchTtsData = useCallback(async () => {
     try {
       const res = await fetch(`${base}/api/tts/settings`, {
-        credentials: 'include', headers: getHeaders()
+        headers: getHeaders()
       });
       if (!res.ok) return null;
       return res.json();

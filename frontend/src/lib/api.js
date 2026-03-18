@@ -97,7 +97,7 @@ export function getUserFriendlyError(errorMessage) {
 export async function safeFetch(url, options = {}) {
   try {
     const response = await fetch(url, {
-      credentials: 'include',
+      
       ...options,
     });
     

@@ -21,6 +21,8 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4.0;
 const TIMELINE_PADDING = 192; // Track controls width in pixels
 const SNAP_THRESHOLD = 0.1; // Snap to grid threshold in seconds
+const TIMELINE_BUFFER = 5; // Extra seconds after last clip
+const MIN_TIMELINE_DURATION = 30; // Minimum timeline length in seconds
 
 function AudioStudio() {
   const { storyId } = useParams();
@@ -47,7 +49,6 @@ function AudioStudio() {
   
   // ========== TIMELINE STATE - SINGLE SOURCE OF TRUTH ==========
   const [timelineTime, setTimelineTime] = useState(0); // Current time in seconds (THE source of truth)
-  const [timelineDuration, setTimelineDuration] = useState(60); // Total duration in seconds
   const [zoom, setZoom] = useState(1); // Zoom multiplier
   const [isPlaying, setIsPlaying] = useState(false);
   const [masterVolume, setMasterVolume] = useState(0.75);
@@ -126,6 +127,18 @@ function AudioStudio() {
   const isLocked = selectedEpisode?.isPublished === true;
   
   // ========== COMPUTED VALUES ==========
+  // DYNAMIC TIMELINE DURATION — computed from all clips across all tracks
+  const timelineDuration = useMemo(() => {
+    let maxEnd = 0;
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        const clipEnd = (clip.start || 0) + (clip.duration || 0);
+        if (clipEnd > maxEnd) maxEnd = clipEnd;
+      });
+    });
+    return Math.max(MIN_TIMELINE_DURATION, maxEnd + TIMELINE_BUFFER);
+  }, [tracks]);
+
   // Pixels per second - THE key value for all positioning
   const pixelsPerSecond = useMemo(() => DEFAULT_PIXELS_PER_SECOND * zoom, [zoom]);
   
@@ -917,8 +930,7 @@ function AudioStudio() {
       const deltaTime = pixelsToTime(deltaX);
       let newStart = Math.max(0, dragStartTime + deltaTime);
       
-      // Clamp to timeline duration
-      newStart = Math.min(newStart, timelineDuration - draggedClip.clip.duration);
+      // NO upper clamp — timeline expands dynamically via useMemo
       
       // Detect target track from Y position
       const targetTrackId = getTrackAtPosition(e.clientY);
@@ -931,10 +943,22 @@ function AudioStudio() {
         setDragTargetTrackId(targetTrackId);
       }
       
+      // Auto-scroll when dragging near edges of the viewport
+      const viewport = timelineViewportRef.current;
+      if (viewport) {
+        const viewportRect = viewport.getBoundingClientRect();
+        const cursorRelX = e.clientX - viewportRect.left;
+        if (cursorRelX > viewportRect.width - 80) {
+          viewport.scrollLeft += 15;
+        } else if (cursorRelX < 80) {
+          viewport.scrollLeft = Math.max(0, viewport.scrollLeft - 15);
+        }
+      }
+      
       // Update clip position in current track (visual preview)
       updateClip(draggedClip.trackId, draggedClip.clip.id, { start: newStart });
     });
-  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, timelineDuration, getTrackAtPosition, dragTargetTrackId, updateClip]);
+  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, getTrackAtPosition, dragTargetTrackId, updateClip]);
   
   const handleClipMouseUp = useCallback((e) => {
     if (!isDraggingClip || !draggedClip) {
@@ -955,7 +979,7 @@ function AudioStudio() {
     const deltaX = e.clientX - dragStartX;
     const deltaTime = pixelsToTime(deltaX);
     let newStart = Math.max(0, dragStartTime + deltaTime);
-    newStart = Math.min(newStart, timelineDuration - draggedClip.clip.duration);
+    // NO upper clamp — timeline expands dynamically
     
     // Detect final target track
     const targetTrackId = getTrackAtPosition(e.clientY) || draggedClip.trackId;
@@ -975,7 +999,7 @@ function AudioStudio() {
     setDraggedClip(null);
     setDragTargetTrackId(null);
     setDragGhostPosition({ x: 0, y: 0 });
-  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, timelineDuration, getTrackAtPosition, moveClipToTrack, updateClip]);
+  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, getTrackAtPosition, moveClipToTrack, updateClip]);
   
   // Global mouse move/up handlers for dragging
   useEffect(() => {
@@ -995,7 +1019,7 @@ function AudioStudio() {
     if (!selectedEpisode) return;
     try {
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/audio/assets/${storyId}`, {
-        credentials: 'include',
+        
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }
       });
       if (!response.ok) throw new Error('Failed to fetch assets');
@@ -1010,7 +1034,7 @@ function AudioStudio() {
     try {
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/episodes`, {
         method: 'POST',
-        credentials: 'include',
+        
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
@@ -1053,7 +1077,7 @@ function AudioStudio() {
       const response = await fetch(
         `${process.env.REACT_APP_BACKEND_URL}/api/episodes/${selectedEpisode.episode_id}/project-state`,
         {
-          credentials: 'include',
+          
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
           }
@@ -1118,7 +1142,7 @@ function AudioStudio() {
           
           loadedTracks = [...loadedTracks, ...additionalTracks];
 
-          if (projectState.duration) setTimelineDuration(projectState.duration);
+          if (projectState.duration) { /* timelineDuration now computed from clips */ }
           if (projectState.zoom) setZoom(projectState.zoom);
           if (projectState.masterVolume !== undefined) setMasterVolume(projectState.masterVolume);
           if (projectState.currentTime !== undefined) setTimelineTime(projectState.currentTime);
@@ -1444,7 +1468,7 @@ function AudioStudio() {
         `${process.env.REACT_APP_BACKEND_URL}/api/episodes/${selectedEpisode.episode_id}/save-project`,
         {
           method: 'POST',
-          credentials: 'include',
+          
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
@@ -1524,7 +1548,7 @@ function AudioStudio() {
       
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/audio/upload`, {
         method: 'POST',
-        credentials: 'include',
+        
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
         },
@@ -1575,9 +1599,7 @@ function AudioStudio() {
         
         toast.success(`Audio added at ${formatTimeShort(startPosition)}`);
         
-        if (audioBuffer.duration + startPosition > timelineDuration) {
-          setTimelineDuration(Math.ceil(audioBuffer.duration + startPosition) + 10);
-        }
+        // Timeline auto-expands via computed duration — no manual set needed
       }
       
       setShowUploadDialog(false);
@@ -1587,7 +1609,7 @@ function AudioStudio() {
     } finally {
       setUploading(false);
     }
-  }, [selectedEpisode, storyId, newTrackType, tracks, timelineTime, timelineDuration, addClipToTrack, ensureAudioContext, formatTimeShort]);
+  }, [selectedEpisode, storyId, newTrackType, tracks, timelineTime, addClipToTrack, ensureAudioContext, formatTimeShort]);
   
   // ========== EFFECTS ==========
 
@@ -1774,7 +1796,7 @@ function AudioStudio() {
 
         const res = await fetch(
           `${process.env.REACT_APP_BACKEND_URL}/api/episodes/${selectedEpisode.episode_id}/render/chunk`,
-          { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }, body: formData, credentials: 'include' }
+          { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }, body: formData }
         );
         if (!res.ok) throw new Error(`Chunk upload failed at ${i + 1}/${totalChunks}`);
 
@@ -1785,7 +1807,7 @@ function AudioStudio() {
       const finalRes = await fetch(
         `${process.env.REACT_APP_BACKEND_URL}/api/episodes/${selectedEpisode.episode_id}/render/finalize`,
         {
-          method: 'POST', credentials: 'include',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
           body: JSON.stringify({ total_chunks: totalChunks, duration: maxEnd })
         }
@@ -1822,7 +1844,7 @@ function AudioStudio() {
     try {
       const res = await fetch(
         `${process.env.REACT_APP_BACKEND_URL}/api/creator/episodes/${selectedEpisode.episode_id}/unpublish`,
-        { method: 'POST', credentials: 'include', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
+        { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
       );
       if (!res.ok) throw new Error('Failed to unpublish');
       const data = await res.json();
@@ -1842,7 +1864,7 @@ function AudioStudio() {
     try {
       const res = await fetch(
         `${process.env.REACT_APP_BACKEND_URL}/api/creator/episodes/${selectedEpisode.episode_id}/publish`,
-        { method: 'POST', credentials: 'include', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
+        { method: 'POST', headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

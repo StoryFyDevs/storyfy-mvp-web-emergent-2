@@ -161,7 +161,7 @@ function VoiceGenerator() {
 
   const fetchCredits = async () => {
     try {
-      const res = await fetch(`${base}/api/credits`, { credentials: 'include', headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${base}/api/credits`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) setCredits(await res.json());
     } catch (e) { console.error(e); }
   };
@@ -204,7 +204,7 @@ function VoiceGenerator() {
         body.output_format = 'mp3_44100_128';
       }
 
-      const genRes = await fetch(`${base}/api/tts/generate`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify(body) });
+      const genRes = await fetch(`${base}/api/tts/generate`, { method: 'POST', headers, body: JSON.stringify(body) });
       
       // Parse response ONCE
       const genData = await genRes.json().catch(() => ({ detail: 'Failed to process response' }));
@@ -228,7 +228,7 @@ function VoiceGenerator() {
       if (cleanAudio) {
         setPipelineStep('isolate');
         try {
-          const isoRes = await fetch(`${base}/api/tts/isolate`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify({ audio_base64: audioUrl }) });
+          const isoRes = await fetch(`${base}/api/tts/isolate`, { method: 'POST', headers, body: JSON.stringify({ audio_base64: audioUrl }) });
           if (isoRes.ok) { const isoData = await isoRes.json(); audioUrl = isoData.audio_url; durationSec = isoData.duration_seconds || durationSec; }
           else toast.warning('Isolation failed — using original audio');
         } catch (isoErr) { toast.warning('Isolation unavailable — using original audio'); }
@@ -280,7 +280,7 @@ function VoiceGenerator() {
 
     try {
       const res = await fetch(`${base}/api/tts/dialogue`, {
-        method: 'POST', credentials: 'include', headers,
+        method: 'POST', headers,
         body: JSON.stringify({ inputs, stability, similarity_boost: similarityBoost, style, speed, output_format: 'mp3_44100_128' })
       });
       
@@ -305,7 +305,7 @@ function VoiceGenerator() {
       if (cleanAudio) {
         setPipelineStep('isolate');
         try {
-          const isoRes = await fetch(`${base}/api/tts/isolate`, { method: 'POST', credentials: 'include', headers, body: JSON.stringify({ audio_base64: audioUrl }) });
+          const isoRes = await fetch(`${base}/api/tts/isolate`, { method: 'POST', headers, body: JSON.stringify({ audio_base64: audioUrl }) });
           if (isoRes.ok) { const isoData = await isoRes.json(); audioUrl = isoData.audio_url; }
         } catch (e) { toast.warning('Isolation unavailable — using original'); }
       }

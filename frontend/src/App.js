@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { API_BASE } from './lib/config';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -83,8 +84,7 @@ function ProtectedRoute({ children }) {
         return;
       }
       try {
-        const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/auth/me`, {
-          credentials: 'include',
+        const response = await fetch(`${API_BASE}/api/auth/me`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

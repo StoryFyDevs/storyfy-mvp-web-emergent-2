@@ -67,7 +67,7 @@ function ScriptEditor() {
   const loadDialogues = async (episodeId) => {
     try {
       const res = await fetch(`${base}/api/script/${episodeId}/dialogues`, {
-        credentials: 'include', headers: authHeaders
+        headers: authHeaders
       });
       if (!res.ok) throw new Error('Failed to load script');
       const data = await res.json();
@@ -107,7 +107,7 @@ function ScriptEditor() {
     e.preventDefault();
     try {
       const response = await fetch(`${base}/api/episodes`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ story_id: storyId, title: newEpisode.title, order: newEpisode.order, script: '' })
       });
@@ -130,7 +130,7 @@ function ScriptEditor() {
     try {
       const indexed = dialogues.map((d, i) => ({ ...d, index: i }));
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogues`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ dialogues: indexed })
       });
@@ -252,7 +252,7 @@ function ScriptEditor() {
         };
       });
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/generate`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ dialogues: indexed })
       });
@@ -285,7 +285,7 @@ function ScriptEditor() {
     pollRef.current = setInterval(async () => {
       try {
         const res = await fetch(`${base}/api/script/job/${jobId}/status`, {
-          credentials: 'include', headers: authHeaders
+          headers: authHeaders
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -398,7 +398,7 @@ function ScriptEditor() {
       // Auto-save script with updated generated_voice_id snapshots
       const indexed = updated.map((d, i) => ({ ...d, index: i }));
       fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogues`, {
-        method: 'POST', credentials: 'include',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ dialogues: indexed })
       }).catch(() => {});
@@ -428,7 +428,7 @@ function ScriptEditor() {
         `${base}/api/script/${selectedEpisode.episode_id}/dialogue/${index}/regenerate`,
         {
           method: 'POST',
-          credentials: 'include',
+          
           headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({
             dialogue_index: index,
@@ -496,7 +496,7 @@ function ScriptEditor() {
     setPublishingEp(episodeId);
     try {
       const res = await fetch(`${base}/api/creator/episodes/${episodeId}/${action}`, {
-        method: 'POST', credentials: 'include', headers: authHeaders
+        method: 'POST', headers: authHeaders
       });
       if (!res.ok) throw new Error(`Failed to ${action}`);
       const data = await res.json();

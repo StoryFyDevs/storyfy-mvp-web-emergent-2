@@ -100,7 +100,7 @@ function StudioLayout() {
   const fetchStory = async () => {
     try {
       const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/stories/${storyId}`, {
-        credentials: 'include', headers: authHeaders
+        headers: authHeaders
       });
       if (!response.ok) throw new Error('Failed to fetch story');
       setStory(await response.json());
@@ -118,7 +118,7 @@ function StudioLayout() {
     setShowConfirm(false);
     try {
       const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/creator/stories/${storyId}/${action}`, {
-        method: 'POST', credentials: 'include', headers: authHeaders
+        method: 'POST', headers: authHeaders
       });
       if (!res.ok) throw new Error(`Failed to ${action}`);
       const data = await res.json();
