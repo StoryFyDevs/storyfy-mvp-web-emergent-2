@@ -1312,23 +1312,30 @@ function AudioStudio() {
           const rd = JSON.parse(replaceRaw);
           const { dialogueIndex, url, duration, name, characterName, text } = rd;
           const charColors = ['#00F0FF', '#FF6B6B', '#4ECDC4', '#FFE66D', '#A78BFA', '#F97316'];
+          // Cache-bust: append timestamp to URL to force audio reload
+          const bustUrl = url.includes('?') ? `${url}&_cb=${Date.now()}` : `${url}?_cb=${Date.now()}`;
 
           let replaced = false;
-          // Find and replace the matching clip by dialogueIndex across all tracks
+          // Find and replace the matching clip by dialogueIndex OR by name across all tracks
           loadedTracks = loadedTracks.map(track => {
-            const matchIdx = track.clips.findIndex(c => c.dialogueIndex === dialogueIndex);
+            const matchIdx = track.clips.findIndex(c =>
+              c.dialogueIndex === dialogueIndex ||
+              c.name === name ||
+              c.name === `${(characterName || '').replace(/\s/g, '_')}_${String(dialogueIndex + 1).padStart(2, '0')}`
+            );
             if (matchIdx === -1) return track;
             replaced = true;
             const oldClip = track.clips[matchIdx];
             const updatedClip = {
               ...oldClip,
               id: `scrclip-${Date.now()}-${dialogueIndex}`,
-              url,
+              url: bustUrl,
               duration: duration || oldClip.duration,
               originalDuration: duration || oldClip.duration,
               name: name || oldClip.name,
               characterName: characterName || oldClip.characterName,
               text: text || oldClip.text,
+              dialogueIndex,
             };
             const updatedClips = [...track.clips];
             updatedClips[matchIdx] = updatedClip;
@@ -1525,6 +1532,76 @@ function AudioStudio() {
       }
     };
   }, [isDirty, selectedEpisode, tracks]); // Only trigger on dirty or track changes
+  
+  // ========== LIVE CLIP REPLACEMENT DETECTOR ==========
+  // Polls localStorage for pending replacements from ScriptEditor regeneration
+  useEffect(() => {
+    if (!selectedEpisode || !storyId) return;
+    const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
+    
+    const checkForReplacement = () => {
+      const raw = localStorage.getItem(replaceKey);
+      if (!raw) return;
+      
+      try {
+        const rd = JSON.parse(raw);
+        const { dialogueIndex, url, duration, name, characterName, text } = rd;
+        
+        setTracks(prevTracks => {
+          let replaced = false;
+          const updatedTracks = prevTracks.map(track => {
+            const matchIdx = track.clips.findIndex(c => 
+              c.dialogueIndex === dialogueIndex || 
+              c.name === name ||
+              c.name === `${(characterName || '').replace(/\s/g, '_')}_${String(dialogueIndex + 1).padStart(2, '0')}`
+            );
+            if (matchIdx === -1) return track;
+            replaced = true;
+            const oldClip = track.clips[matchIdx];
+            // Cache-bust: append timestamp to URL to force audio reload
+            const bustUrl = url.includes('?') ? `${url}&_cb=${Date.now()}` : `${url}?_cb=${Date.now()}`;
+            const updatedClip = {
+              ...oldClip,
+              id: `scrclip-${Date.now()}-${dialogueIndex}`,
+              url: bustUrl,
+              duration: duration || oldClip.duration,
+              originalDuration: duration || oldClip.duration,
+              name: name || oldClip.name,
+              characterName: characterName || oldClip.characterName,
+              text: text || oldClip.text,
+              dialogueIndex,
+            };
+            const updatedClips = [...track.clips];
+            updatedClips[matchIdx] = updatedClip;
+            return { ...track, clips: updatedClips };
+          });
+          
+          if (replaced) {
+            // Clear any cached audio buffer for this clip
+            audioBufferCache.current.delete(url);
+            toast.success(`Dialogue ${dialogueIndex + 1} clip replaced in timeline`);
+          }
+          return replaced ? updatedTracks : prevTracks;
+        });
+        
+        localStorage.removeItem(replaceKey);
+        setIsDirty(true);
+      } catch (e) {
+        console.warn('[Project] pending_clip_replace parse error:', e);
+        localStorage.removeItem(replaceKey);
+      }
+    };
+    
+    const interval = setInterval(checkForReplacement, 1500);
+    // Also check on window focus (user switching tabs)
+    const handleFocus = () => checkForReplacement();
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [selectedEpisode, storyId]);
   
   // ========== FILE UPLOAD ==========
   const handleFileUpload = useCallback(async (event) => {

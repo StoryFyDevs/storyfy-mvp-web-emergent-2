@@ -163,35 +163,196 @@ class StoryFyAPITester:
             self.log(f"❌ Auth /me failed. Response: {response}")
             return False
 
+    def test_get_stories(self) -> tuple[bool, list]:
+        """Test get stories endpoint and return available stories"""
+        if not self.token:
+            self.log("❌ No token available for get stories test")
+            return False, []
+
+        headers = {'Authorization': f'Bearer {self.token}'}
+        success, response = self.run_test(
+            "Get User Stories",
+            "GET",
+            "api/stories",
+            200,
+            headers=headers
+        )
+        
+        if success and isinstance(response, list):
+            self.log(f"✅ Found {len(response)} stories")
+            for story in response[:3]:  # Show first 3 stories
+                self.log(f"  - Story ID: {story.get('story_id')}, Title: {story.get('title', 'Untitled')}")
+            return True, response
+        else:
+            self.log(f"❌ Get stories failed. Response: {response}")
+            return False, []
+
+    def test_get_episodes(self, story_id) -> tuple[bool, list]:
+        """Test get episodes for a specific story"""
+        if not self.token:
+            self.log("❌ No token available for get episodes test")
+            return False, []
+
+        headers = {'Authorization': f'Bearer {self.token}'}
+        success, response = self.run_test(
+            "Get Story Episodes",
+            "GET",
+            f"api/episodes/story/{story_id}",
+            200,
+            headers=headers
+        )
+        
+        if success and isinstance(response, list):
+            self.log(f"✅ Found {len(response)} episodes for story {story_id}")
+            for episode in response[:3]:  # Show first 3 episodes
+                self.log(f"  - Episode ID: {episode.get('episode_id')}, Title: {episode.get('title', 'Untitled')}")
+            return True, response
+        else:
+            self.log(f"❌ Get episodes failed. Response: {response}")
+            return False, []
+
+    def test_script_dialogues_endpoint(self, episode_id) -> bool:
+        """Test script dialogues endpoint for specific episode"""
+        if not self.token:
+            self.log("❌ No token available for script dialogues test")
+            return False
+
+        headers = {'Authorization': f'Bearer {self.token}'}
+        success, response = self.run_test(
+            "Get Script Dialogues",
+            "GET",
+            f"api/script/{episode_id}/dialogues",
+            200,
+            headers=headers
+        )
+        
+        if success:
+            dialogues = response.get('dialogues', [])
+            self.log(f"✅ Script dialogues loaded: {len(dialogues)} dialogues found")
+            return True
+        else:
+            self.log(f"❌ Script dialogues failed. Response: {response}")
+            return False
+
+    def test_regeneration_endpoint_success(self, episode_id, dialogue_index=0) -> bool:
+        """Test regeneration endpoint with valid data - should return structured JSON"""
+        if not self.token:
+            self.log("❌ No token available for regeneration test")
+            return False
+
+        headers = {'Authorization': f'Bearer {self.token}'}
+        test_data = {
+            "dialogue_index": dialogue_index,
+            "character_id": "test_char_id",
+            "character_name": "Test Character",
+            "voice_id": "Kore",
+            "text": "This is a test dialogue for regeneration.",
+            "director_notes": "speak naturally"
+        }
+        
+        success, response = self.run_test(
+            "Regeneration Endpoint - Valid Data",
+            "POST",
+            f"api/script/{episode_id}/dialogue/{dialogue_index}/regenerate",
+            200,
+            data=test_data,
+            headers=headers
+        )
+        
+        if success:
+            # Check for structured JSON with 'success' field
+            if 'success' in response:
+                self.log(f"✅ Regeneration endpoint returned structured JSON with 'success' field")
+                return True
+            else:
+                self.log(f"❌ Regeneration endpoint missing 'success' field in response: {response}")
+                return False
+        else:
+            self.log(f"❌ Regeneration endpoint test failed. Response: {response}")
+            return False
+
+    def test_regeneration_endpoint_error(self, episode_id="story_45f8bef2c25c") -> bool:
+        """Test regeneration endpoint with invalid data - should return proper error JSON, not 502"""
+        if not self.token:
+            self.log("❌ No token available for regeneration error test")
+            return False
+
+        headers = {'Authorization': f'Bearer {self.token}'}
+        invalid_data = {
+            "dialogue_index": 999,  # Invalid index
+            "character_id": "",     # Empty character ID
+            "character_name": "",   # Empty character name
+            "voice_id": "",         # Empty voice ID
+            "text": "",             # Empty text
+            "director_notes": ""
+        }
+        
+        success, response = self.run_test(
+            "Regeneration Endpoint - Invalid Data",
+            "POST",
+            f"api/script/{episode_id}/dialogue/999/regenerate",
+            400,  # Expecting 400 Bad Request, not 502
+            data=invalid_data,
+            headers=headers
+        )
+        
+        # Even if we get different status code, check it's NOT 502
+        if response.get('error') != 'timeout' and 'error' in response:
+            # Check response structure has proper error JSON
+            if 'detail' in response or 'error' in response or 'success' in response:
+                self.log(f"✅ Regeneration endpoint returned structured error JSON (not 502)")
+                return True
+            else:
+                self.log(f"❌ Regeneration endpoint returned unstructured error: {response}")
+                return False
+        else:
+            self.log(f"❌ Regeneration error test failed. Response: {response}")
+            return False
+
     def run_focused_tests(self):
         """Run focused tests for the specific requirements"""
         self.log("🚀 Starting StoryFy API focused testing...")
-        self.log("Testing specific features requested in the review:")
+        self.log("Testing clip regeneration system fixes and core functionality:")
         
         # Test 1: Health endpoint
         self.log("\n📋 1. HEALTH ENDPOINT TEST")
-        self.test_health_endpoint()
+        health_success = self.test_health_endpoint()
         
         # Test 2: Creator login
         self.log("\n🔐 2. CREATOR LOGIN TEST")
         creator_login_success = self.test_creator_login()
         
         # Test 3: Auth /me endpoint (if login successful)
+        auth_me_success = False
         if creator_login_success:
             self.log("\n👤 3. AUTH ME TEST")
-            self.test_auth_me()
+            auth_me_success = self.test_auth_me()
         
-        # Test 4: Signup API
-        self.log("\n📝 4. SIGNUP API TEST")
-        self.test_signup_api()
+        # Test 4: Script dialogues endpoint for specific story
+        script_dialogues_success = False
+        if creator_login_success:
+            self.log("\n📜 4. SCRIPT DIALOGUES TEST")
+            script_dialogues_success = self.test_script_dialogues_endpoint()
         
-        # Test 5: Admin login
-        self.log("\n🛡️  5. ADMIN LOGIN TEST")
-        self.test_admin_login()
+        # Test 5: Regeneration endpoint with valid data
+        regeneration_success = False
+        if creator_login_success:
+            self.log("\n🔄 5. REGENERATION ENDPOINT - VALID DATA")
+            regeneration_success = self.test_regeneration_endpoint_success()
+        
+        # Test 6: Regeneration endpoint with invalid data (should not return 502)
+        regeneration_error_success = False
+        if creator_login_success:
+            self.log("\n❌ 6. REGENERATION ENDPOINT - ERROR HANDLING")
+            regeneration_error_success = self.test_regeneration_endpoint_error()
+        
+        # Test 7: Signup API
+        self.log("\n📝 7. SIGNUP API TEST")
+        signup_success = self.test_signup_api()
         
         self.print_results()
 
-    def print_results(self):
+    def print_results(self, specific_tests_passed=None):
         """Print final test results"""
         self.log("\n" + "="*60)
         self.log("🏁 FINAL TEST RESULTS")

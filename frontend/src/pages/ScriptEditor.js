@@ -443,7 +443,9 @@ function ScriptEditor() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Server error ${res.status}`);
+        const detail = err.detail;
+        const errorMsg = typeof detail === 'object' ? (detail.error || JSON.stringify(detail)) : (detail || `Server error ${res.status}`);
+        throw new Error(errorMsg);
       }
 
       const data = await res.json();

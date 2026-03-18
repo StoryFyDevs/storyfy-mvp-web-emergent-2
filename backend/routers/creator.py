@@ -1390,9 +1390,17 @@ async def regenerate_dialogue_clip(
             user_id=user_id,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        logger.error(f"[regen] Failed dialogue {dialogue_index} in {episode_id}: {error_msg}")
+        # Return structured error, not 502
+        raise HTTPException(status_code=500, detail={
+            "success": False,
+            "error": error_msg,
+            "dialogue_index": dialogue_index,
+        })
 
     return {
+        "success": True,
         "dialogue_index": dialogue_index,
         "audio_url": result["audio_url"],
         "duration_seconds": result["duration_seconds"],

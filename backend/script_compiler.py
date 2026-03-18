@@ -38,7 +38,8 @@ logger = logging.getLogger("script_compiler")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY", "")
-MAX_RETRIES = 2
+MAX_RETRIES = 3
+REGEN_TIMEOUT = 90  # Maximum seconds for single dialogue regeneration
 BATCH_GEMINI_RETRIES = 1  # retries for batch Gemini calls before fallback
 MIN_AUDIO_BYTES = 1000
 MIN_AUDIO_DURATION = 0.3  # minimum seconds for valid audio
@@ -1057,12 +1058,20 @@ async def regenerate_single_dialogue(
 ) -> Dict:
     """Generate a fresh clip for one dialogue, bypassing the cache entirely.
     Marks the old clip (same episode + dialogue_index) as inactive so storage
-    cleanup can reclaim it after the grace period."""
+    cleanup can reclaim it after the grace period.
+    Wraps the generation in a timeout to prevent gateway 502s."""
     rate = await gq.check_rate_limits(user_id, len(dialogue.get("text", "")))
     if not rate.get("allowed"):
         raise Exception(f"Rate limit exceeded: {rate.get('reason', 'try again later')}")
 
-    result = await _generate_single_dialogue(dialogue, voice_id, episode_id, story_id=story_id)
+    try:
+        result = await asyncio.wait_for(
+            _generate_single_dialogue(dialogue, voice_id, episode_id, story_id=story_id),
+            timeout=REGEN_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[regen] Timeout after {REGEN_TIMEOUT}s for episode={episode_id}")
+        raise Exception(f"Generation timed out after {REGEN_TIMEOUT}s. Please try again.")
 
     # Cache the new clip so future full-regenerations can reuse it
     text = dialogue.get("text", "")
