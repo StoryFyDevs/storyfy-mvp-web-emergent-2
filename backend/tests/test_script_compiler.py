@@ -20,7 +20,7 @@ import os
 import time
 import json
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://code-importer-41.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://daw-timeline-demo.preview.emergentagent.com')
 
 # Test data
 CREATOR_EMAIL = "testuser@test.com"

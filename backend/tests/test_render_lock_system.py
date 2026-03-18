@@ -15,7 +15,7 @@ import uuid
 import io
 import struct
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://code-importer-41.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://daw-timeline-demo.preview.emergentagent.com').rstrip('/')
 
 # Test credentials
 CREATOR_EMAIL = "testapi@test.com"

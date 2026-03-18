@@ -19,7 +19,7 @@ import os
 import uuid
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://code-importer-41.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://daw-timeline-demo.preview.emergentagent.com')
 
 @pytest.fixture(scope="module")
 def creator_token():
