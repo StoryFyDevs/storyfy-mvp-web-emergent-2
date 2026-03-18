@@ -421,7 +421,6 @@ function ScriptEditor() {
     }
 
     setRegenLoading(prev => new Set([...prev, index]));
-    toast.loading(`Regenerating dialogue ${index + 1}...`, { id: `regen-${index}` });
 
     try {
       const res = await fetch(
@@ -449,38 +448,104 @@ function ScriptEditor() {
       }
 
       const data = await res.json();
-      toast.dismiss(`regen-${index}`);
-      toast.success(`Dialogue ${index + 1} regenerated`);
 
-      // Update voice snapshot for this dialogue
-      setDialogues(prev =>
-        prev.map((item, i) =>
-          i === index ? { ...item, generated_voice_id: data.generated_voice_id } : item
-        )
-      );
-
-      // Write a targeted single-clip replacement for AudioStudio
-      const charName = char.name || d.character_name || 'Unknown';
-      const filename = data.filename || `${charName.replace(/\s/g, '_')}_${String(index + 1).padStart(2, '0')}.wav`;
-      const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
-      localStorage.setItem(replaceKey, JSON.stringify({
-        dialogueIndex: index,
-        url: data.audio_url,
-        duration: data.duration_seconds,
-        name: filename.replace('.wav', ''),
-        characterName: charName,
-        text: d.text,
-      }));
+      if (data.status === 'queued' && data.job_id) {
+        // Poll for completion
+        toast.loading(`Dialogue ${index + 1} queued for regeneration...`, { id: `regen-${index}` });
+        pollRegenJob(data.job_id, index, d, char);
+      } else if (data.success) {
+        // Direct response (legacy fallback)
+        toast.success(`Dialogue ${index + 1} regenerated`);
+        applyRegenResult(index, data, d, char);
+      }
     } catch (err) {
       toast.dismiss(`regen-${index}`);
       toast.error(`Regeneration failed: ${err.message}`);
-    } finally {
       setRegenLoading(prev => {
         const next = new Set(prev);
         next.delete(index);
         return next;
       });
     }
+  };
+
+  const pollRegenJob = (jobId, index, dialogue, char) => {
+    let attempts = 0;
+    const maxAttempts = 90; // 3 minutes at 2s intervals
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`${base}/api/jobs/${jobId}`, { headers: authHeaders });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.status === 'queued') {
+          const pos = data.position_in_queue || 0;
+          toast.loading(
+            pos > 0 ? `${pos} job${pos > 1 ? 's' : ''} ahead of you...` : 'Your audio is in queue...',
+            { id: `regen-${index}` }
+          );
+        } else if (data.status === 'processing') {
+          toast.loading('Processing your audio...', { id: `regen-${index}` });
+        } else if (data.status === 'completed' && data.result) {
+          clearInterval(interval);
+          toast.dismiss(`regen-${index}`);
+          toast.success(`Dialogue ${index + 1} regenerated`);
+          applyRegenResult(index, data.result, dialogue, char);
+          setRegenLoading(prev => {
+            const next = new Set(prev);
+            next.delete(index);
+            return next;
+          });
+        } else if (data.status === 'failed') {
+          clearInterval(interval);
+          toast.dismiss(`regen-${index}`);
+          toast.error(`Regeneration failed: ${data.error || 'Unknown error'}`);
+          setRegenLoading(prev => {
+            const next = new Set(prev);
+            next.delete(index);
+            return next;
+          });
+        }
+
+        if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          toast.dismiss(`regen-${index}`);
+          toast.error('Regeneration timed out. Please try again.');
+          setRegenLoading(prev => {
+            const next = new Set(prev);
+            next.delete(index);
+            return next;
+          });
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    }, 2000);
+  };
+
+  const applyRegenResult = (index, data, dialogue, char) => {
+    // Update voice snapshot
+    if (data.generated_voice_id) {
+      setDialogues(prev =>
+        prev.map((item, i) =>
+          i === index ? { ...item, generated_voice_id: data.generated_voice_id } : item
+        )
+      );
+    }
+
+    // Write clip replacement for AudioStudio
+    const charName = char.name || dialogue.character_name || 'Unknown';
+    const filename = data.filename || `${charName.replace(/\s/g, '_')}_${String(index + 1).padStart(2, '0')}.wav`;
+    const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
+    localStorage.setItem(replaceKey, JSON.stringify({
+      dialogueIndex: index,
+      url: data.audio_url,
+      duration: data.duration_seconds,
+      name: filename.replace('.wav', ''),
+      characterName: charName,
+      text: dialogue.text,
+    }));
   };
 
   // ========== PUBLISH ==========

@@ -205,6 +205,11 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Voice engine not configured")
 
+    # Acquire global rate-limit slot before calling Gemini
+    import queue_worker as qw
+    if not await qw.acquire_gemini_slot(estimated_tokens=max(len(text), 100), timeout=60):
+        raise HTTPException(status_code=429, detail="Audio generation is currently busy. Your request has been rate-limited. Please try again shortly.")
+
     prompt_parts = []
     if style_preset and style_preset in STYLE_PRESETS:
         prompt_parts.append(STYLE_PRESETS[style_preset])
@@ -224,7 +229,15 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
     }
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
-    resp = req_lib.post(url, json=payload, timeout=60)
+    try:
+        resp = req_lib.post(url, json=payload, timeout=60)
+    except Exception as e:
+        await qw.release_gemini_slot(0)
+        raise HTTPException(status_code=503, detail="Voice service is temporarily unavailable. Please try again shortly.")
+
+    # Record the call in the global rate limiter
+    await qw.release_gemini_slot(max(len(text), 100))
+
     if resp.status_code != 200:
         logger.error(f"Gemini TTS error: {resp.status_code} {resp.text[:300]}")
         
@@ -1357,7 +1370,7 @@ async def regenerate_dialogue_clip(
     body: RegenDialogueRequest,
     authorization: Optional[str] = Header(None),
 ):
-    """Regenerate audio for a single dialogue, bypassing the cache."""
+    """Queue audio regeneration for a single dialogue. Returns job_id for polling."""
     profile = await _auth(authorization)
     user_id = profile["user_id"]
 
@@ -1372,41 +1385,23 @@ async def regenerate_dialogue_clip(
         raise HTTPException(status_code=403, detail=creator_limits.get("reason", "Generation not available"))
 
     story_id = ep.get("story_id", "")
-    dialogue_data = {
+
+    import queue_worker as qw
+    job_id = await qw.submit_job(user_id, "regenerate", {
+        "episode_id": episode_id,
+        "story_id": story_id,
         "dialogue_index": dialogue_index,
-        "index": dialogue_index,
         "character_id": body.character_id,
         "character_name": body.character_name,
+        "voice_id": body.voice_id,
         "text": body.text,
         "director_notes": body.director_notes or "",
-    }
-
-    try:
-        result = await sc.regenerate_single_dialogue(
-            episode_id=episode_id,
-            story_id=story_id,
-            dialogue=dialogue_data,
-            voice_id=body.voice_id,
-            user_id=user_id,
-        )
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"[regen] Failed dialogue {dialogue_index} in {episode_id}: {error_msg}")
-        # Return structured error, not 502
-        raise HTTPException(status_code=500, detail={
-            "success": False,
-            "error": error_msg,
-            "dialogue_index": dialogue_index,
-        })
+    })
 
     return {
-        "success": True,
+        "status": "queued",
+        "job_id": job_id,
         "dialogue_index": dialogue_index,
-        "audio_url": result["audio_url"],
-        "duration_seconds": result["duration_seconds"],
-        "filename": result.get("filename", ""),
-        "character_name": body.character_name,
-        "generated_voice_id": body.voice_id,
     }
 
 
@@ -1435,3 +1430,16 @@ async def get_script_job_status(job_id: str, authorization: Optional[str] = Head
         "error_message": job.get("error_message", ""),
         "results": result_data if job.get("status") in ("completed", "completed_with_errors") else {},
     }
+
+
+@creator_router.get("/jobs/{job_id}")
+async def get_job_status(job_id: str, authorization: Optional[str] = Header(None)):
+    """Poll the status of a queued generation job (regeneration etc)."""
+    profile = await _auth(authorization)
+
+    import queue_worker as qw
+    status = await qw.get_job_status(job_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return status

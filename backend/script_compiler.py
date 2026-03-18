@@ -322,11 +322,27 @@ async def _call_gemini_tts(payload: Dict, label: str = "") -> Tuple[bytes, float
 
     Handles multi-part responses by concatenating all audio parts.
     Validates that the returned audio meets minimum size/duration requirements.
+    Waits for a global rate-limit slot before calling the API.
     """
+    # Acquire global rate-limit slot
+    import queue_worker as qw
+    text_len = len(payload.get("contents", [{}])[0].get("parts", [{}])[0].get("text", ""))
+    if not await qw.acquire_gemini_slot(estimated_tokens=max(text_len, 100)):
+        raise Exception("Rate limit timeout — queue is busy, please retry.")
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={GEMINI_API_KEY}"
     client = _get_http_client()
     logger.info(f"[{label}] Gemini TTS request...")
-    resp = await client.post(url, json=payload)
+
+    try:
+        resp = await client.post(url, json=payload)
+    except Exception:
+        await qw.release_gemini_slot(0)
+        raise
+
+    # Record the call in the rate limiter
+    await qw.release_gemini_slot(max(text_len, 100))
+
     if resp.status_code == 429:
         raise Exception("Voice service busy — please retry shortly.")
     if resp.status_code != 200:

@@ -1138,11 +1138,19 @@ async def update_creator_generation_limits(user_id: str, body: Dict, authorizati
 
 @admin_router.get("/generation/queue")
 async def get_generation_queue_status(authorization: Optional[str] = Header(None)):
-    """Get current generation queue status."""
+    """Get current generation queue status including live worker stats."""
     admin = await _auth_admin(authorization)
     
+    import queue_worker as qw
+    live_info = await qw.get_queue_info()
+
     import generation_queue as gq
-    return await gq.get_queue_status()
+    db_status = await gq.get_queue_status()
+
+    return {
+        "live_queue": live_info,
+        "db_queue": db_status,
+    }
 
 
 

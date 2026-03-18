@@ -1,0 +1,158 @@
+<analysis>**original_problem_statement:**
+The user initially requested importing the StoryFy application and then provided a series of tasks and bug fixes, including email validation, login bugs, Vercel deployment issues, a dynamic DAW timeline upgrade, and fixing clip regeneration.
+
+In the current session, two major new tasks were introduced:
+1.  **Optimize Audio Studio Performance:** A detailed request to improve the performance of the Audio Studio to achieve 60fps interactions, smooth scrolling/dragging, and eliminate UI lag by implementing a series of advanced frontend optimizations.
+2.  **Global Generation Queue:** A comprehensive architectural plan to replace direct API calls for audio generation with a global, rate-aware, fair-queue system to eliminate 503 errors and ensure stable, scalable processing for all users.
+
+**User's preferred language**: English
+
+**what currently exists?**
+The StoryFy application is a full-stack React and FastAPI application using Supabase for the database and auth, and Google Gemini for TTS.
+
+The agent has successfully completed a major performance overhaul of the  page. This involved implementing a series of advanced optimizations, including decoupling the playhead from React state using , using GPU-accelerated CSS transforms for positioning, implementing viewport virtualization to only render visible clips, and throttling event handlers. These changes were verified by the testing agent (), which confirmed the performance goals were met and the Audio Studio loads correctly.
+
+The agent has just begun investigating the codebase for the next major task: implementing the global audio generation queue.
+
+**Last working item**:
+- **Last item agent was working:** The agent was in the initial investigation phase for the Global Generation Queue task. It reviewed key backend files (, , , and ) to understand the current audio generation flow before starting implementation.
+- **Status:** NOT STARTED
+- **Agent Testing Done:** N
+- **Which testing method agent to use?** both
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1:** ESLint warnings for missing dependencies in React hooks (Priority: P2)
+
+**Issues Detail:**
+- **Issue 1:**
+  - **Description:** The frontend codebase has numerous  warnings that were suppressed using  to allow Vercel deployment. These warnings indicate potential bugs related to stale closures in React hooks.
+  - **Attempted fixes:** None. This is a known issue carried over from the previous session.
+  - **Next debug checklist:**
+    1.  Run yarn run v1.22.22
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in the  directory to identify all instances of the warning.
+    2.  For each warning, analyze the  or  hook and add the missing dependencies listed in the warning message to the dependency array.
+    3.  Files known to have this issue include  and .
+  - **Why fix this issue and what will be achieved with the fix?** Fixing these warnings prevents subtle and hard-to-debug bugs caused by components not re-rendering when their data dependencies change. It improves overall code quality and application stability.
+  - **Status:** NOT STARTED
+  - **Is recurring issue?** Y
+  - **Should Test frontend/backend/both after fix?** frontend
+  - **Blocked on other issue:** None.
+
+**In progress Task List**:
+- **Task 1:** Implement a global, rate-aware, fair queue system for audio generation (Priority: P0)
+
+**Task Detail:**
+- **Task 1:**
+  - **Where to resume:** The initial code review is complete. The next step is to begin implementation based on the user's detailed specification. This involves:
+    1.  Modifying the generation/regeneration endpoints in  to create and queue jobs instead of calling the generation logic directly.
+    2.  Creating a new database model/table for .
+    3.  Implementing the background worker with a fair (round-robin per user) scheduler, rate-limit controller, and retry logic.
+    4.  Creating a new API endpoint  for the frontend to poll status.
+    5.  Updating the frontend to handle the asynchronous nature of job submission and status polling.
+  - **What will be achieved with this?** A robust, scalable, and fair audio generation system that prevents rate-limiting errors (503s), ensures stability, and provides a smooth, responsive experience for all users.
+  - **Status:** IN PROGRESS
+  - **Should Test frontend/backend/both after fix?** both
+  - **Blocked on something:** None.
+
+**Upcoming and Future Tasks**
+- **Upcoming Tasks:**
+  - **P1: Add Zoom System to Audio Studio:** Implement zoom controls (/ buttons or a slider) that adjust the  value in  to allow users to zoom in and out of the timeline.
+- **Future Tasks:**
+  - **P2: Add Zoom-to-Fit Button:** Create a button that automatically calculates and sets the  value to make all audio clips fit within the visible timeline area.
+  - **P2: Performance Monitor Overlay:** As a potential enhancement, add a developer overlay to the Audio Studio showing FPS, render count, and active clip count to validate performance in real time.
+  - **P2: Performance Optimization (Virtualization):** Implement timeline virtualization to only render visible clips, improving performance for projects with a large number of audio clips. (This was part of the completed performance task, but can be revisited if further optimization is needed).
+
+**Completed work in this session**
+- **Audio Studio Performance Optimization:** Successfully implemented a comprehensive set of frontend optimizations in  to achieve smooth 60fps interactions. This included:
+  - Decoupling the playhead from React state using .
+  - Switching from  positioning to GPU-accelerated .
+  - Implementing viewport virtualization to render only visible clips.
+  - Throttling drag and scroll event handlers.
+  - Fixing a temporal dead zone bug with .
+- **Testing and Verification:** Verified all performance fixes with a successful run of the , which confirmed the UI loads correctly and performance goals were met ().
+
+**Earlier issues found/mentioned but not fixed**
+- **Issue 1:** ESLint warnings for missing dependencies in React hooks (). This is a recurring issue that has been deferred to improve stability and prevent bugs.
+
+**Known issue recurrence from previous fork**
+- None. The primary blocker from the previous fork (missing test data) appears to be resolved, as the testing agent was able to run successfully in this session.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend:** React, , , . Advanced performance patterns:  for DOM updates, CSS  for GPU acceleration, viewport virtualization, event throttling.
+- **Backend:** FastAPI, . Upcoming: Background job queuing, round-robin scheduling, rate limiting.
+- **Database & Auth:** Supabase (PostgreSQL, Auth, Storage).
+- **3rd Party APIs:** Google Gemini (TTS).
+
+**key DB schema**
+- **stories, episodes, dialogues, audio_clips:** Existing schema for story creation.
+- **Proposed  table:**
+  - : UUID (Primary Key)
+  - : Foreign Key to 
+  - : TEXT (generate or regenerate)
+  - : TEXT (queued, processing, completed, failed)
+  - : JSONB (contains , , etc.)
+  - : TIMESTAMP
+  - : TIMESTAMP
+  - : INTEGER
+  - : TEXT
+
+**changes in tech stack**
+- None.
+
+**All files of reference**
+- ****: Heavily modified in this session to implement major performance optimizations.
+- ****: Key existing file for the next task. Manages generation quotas.
+- ****: Contains the core logic for generating audio clips that will be invoked by the new worker system.
+- ****: Contains the API endpoints that will be modified to queue jobs instead of processing them directly.
+- ****: Main application file where the new queue worker will likely be initialized.
+
+**Areas that need refactoring**
+- **State Management:** The use of  as a message bus between pages is inefficient and should be replaced with a proper global state manager like Zustand or React Context.
+- **React Hook Dependencies:** The  ESLint warnings should be fixed across the application to prevent bugs.
+
+**key api endpoints**
+- : The existing regeneration endpoint, to be modified.
+- **(New) **: To be created for the frontend to poll the status of a generation job.
+
+**Critical Info for New Agent**
+- Your immediate and highest-priority task is to implement the **global audio generation queue** as specified by the user. The user has provided a detailed architectural plan—follow it closely.
+- The previous performance optimization task is complete and fully verified. The Audio Studio frontend is in a stable state.
+- The previous blocker regarding missing test data for the testing agent is resolved. The testing agent is now a reliable tool for verification.
+- When implementing the queue, focus on the backend first (job creation, worker, scheduler, rate limiter), then create the status endpoint, and finally update the frontend to use the new asynchronous flow.
+
+**documents and test reports created in this job**
+-  (Updated)
+-  (Latest test report for performance optimization)
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User (Task):** Provided a detailed 12-point specification to optimize the Audio Studio's performance for 60fps interactions, including using , CSS transforms, and viewport virtualization.
+2.  (Messages 10-67): Agent implemented and tested the performance optimizations, culminating in a successful  run.
+3.  **User (Task):** Provided a new, detailed architectural specification for a global, rate-aware, fair-queue system for audio generation to eliminate 503 errors and stabilize the system.
+4.  (Messages 69-74): Agent began the initial investigation for the new queue system task by reviewing relevant backend files.
+
+**Project Health Check:**
+- **Broken:** None.
+- **Mocked:** None.
+
+**3rd Party Integrations**
+- **Supabase:** Database, Authentication, and Storage.
+- **Google Gemini:** Text-to-Speech (TTS) generation.
+- **Vercel:** Target deployment platform.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES (Successfully verified the performance optimization task).
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:** None in this session.
+- **Known regressions:** None. The last test run was successful.
+
+**Credentials to test flow:**
+- **User:** 
+- **Password:** 
+
+**What agent forgot to execute**
+- The agent has not yet started the implementation of the primary task: the global generation queue.
+- The longstanding issue of ESLint warnings () remains unfixed.</analysis>

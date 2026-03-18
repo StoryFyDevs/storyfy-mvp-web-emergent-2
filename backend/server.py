@@ -50,6 +50,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Storage cleanup scheduler skipped: {e}")
 
+    # Start global generation queue worker
+    try:
+        import queue_worker as qw
+        await qw.start_worker()
+        logger.info("Global generation queue worker started")
+    except Exception as e:
+        logger.warning(f"Queue worker start failed: {e}")
+
     yield
 
     logger.info("StoryFy shutting down")
