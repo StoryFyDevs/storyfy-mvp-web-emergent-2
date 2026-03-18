@@ -20,31 +20,31 @@ Import StoryFy app from GitHub - a full-stack audio storytelling platform for cr
 
 ### Session 2: Email Validation Fix
 - Confirmed all existing Supabase Auth users via admin API
-- Rewrote `register_supabase_user` to use Admin API with `email_confirm: True` — no email verification needed
-- Both web and mobile signup paths auto-confirm
+- Rewrote `register_supabase_user` to use Admin API with `email_confirm: True`
 
 ### Session 3: CORS & Login Fixes
 - Fixed REACT_APP_BACKEND_URL for Emergent (empty for relative URLs via ingress)
 - Fixed CORS: `allow_origin_regex=".*"` for proper origin reflection with credentials
-- Removed `credentials: 'include'` from ALL frontend fetch calls (Bearer token auth doesn't need cookies)
-- Added `API_BASE` import to Login.js, Signup.js, AuthCallback.js, App.js
+- Removed `credentials: 'include'` from ALL frontend fetch calls
 - Created `.npmrc` with `legacy-peer-deps=true` for Vercel deployment
-- Removed `package-lock.json` (project uses yarn)
-- Fixed Vercel build: `CI=false craco build` to treat warnings as warnings
-- Removed `emergentintegrations` and other unused packages from requirements.txt
+- Fixed Vercel build: `CI=false craco build`
 - Created `vercel.json` for backend Vercel deployment
 
 ### Session 4: Dynamic DAW Timeline (Audio Studio Upgrade)
-- **Removed fixed 60s timeline** — replaced `useState(60)` with `useMemo` computed from all clips
-- **Dynamic timeline duration**: `max(clip.start + clip.duration) + 5s buffer`, minimum 30s
-- **Added constants**: `TIMELINE_BUFFER = 5`, `MIN_TIMELINE_DURATION = 30`
-- **Removed drag clamping** — clips can be dragged infinitely past timeline end
-- **Auto-scroll during drag** — viewport scrolls when cursor near edges (±80px threshold)
-- **Auto-expand** — timeline grows as clips are moved/added (via useMemo recalculation)
-- **Timeline markers** adapt dynamically to computed duration
-- **Playhead** syncs with full computed duration
-- **Episode-scoped** — switching episodes recalculates timeline from that episode's clips
-- **Zoom controls** — `1.00x` multiplier for pixelsPerSecond (configurable)
+- Removed fixed 60s timeline — replaced with dynamic computed duration
+- Dynamic timeline duration: `max(clip.start + clip.duration) + 5s buffer`, minimum 30s
+- Auto-scroll during drag, auto-expand, zoom controls
+
+### Session 5: Audio Studio Performance Optimization (Mar 2026)
+- **Decoupled playhead from React state** — uses `requestAnimationFrame` + direct DOM manipulation via refs (`playheadRef`, `playheadLabelRef`, `transportTimeRef`) during playback. Zero React re-renders during playback.
+- **GPU-accelerated clip positioning** — replaced CSS `left` with `transform: translateX()` on all clips. Added `will-change: transform` during drag.
+- **Deterministic waveform visualization** — replaced `Math.random()` with seeded `Math.sin()` + `clip.id.charCodeAt()` hash. Waveforms are now stable across re-renders.
+- **Optimized drag handler** — uses direct DOM manipulation via `dragClipRef` during drag. `updateClip` called once on mouseup (single re-render). Previous: `updateClip` called ~60 times/sec.
+- **Viewport-based clip virtualization** — only renders clips visible in the viewport (±300px buffer). Off-screen clips skip DOM rendering entirely.
+- **Throttled scroll handler** — scroll events throttled via `requestAnimationFrame`. Max one `setScrollLeft` state update per frame.
+- **Auto-scroll moved to rAF loop** — removed React `useEffect` dependency on `playheadPosition`. Auto-scroll now runs inside the playback `requestAnimationFrame` loop.
+- **Fixed `audioBufferCache.current` bug** — undefined variable reference in clip replacement detector. Replaced with proper cleanup.
+- **Added `will-change` hints** — `will-change: transform` on playhead, `will-change: scroll-position` on timeline viewport.
 
 ## Credentials
 - Admin: admin@admin.com / admin12345
@@ -54,17 +54,21 @@ Import StoryFy app from GitHub - a full-stack audio storytelling platform for cr
 ## Test Results
 - Backend: All endpoints working (health, auth, episodes, characters, project state)
 - Frontend: Login, dashboard, studio navigation, Audio Studio all working
-- Audio Studio: Dynamic timeline, markers, transport bar, zoom, tracks all rendering correctly
-- CORS: Fixed for both Emergent (relative URLs) and Vercel (specific origins)
+- Audio Studio: 18 clips across 7 tracks rendering correctly with all performance optimizations
+- Performance: All 8 optimization categories verified by testing agent (iteration_35)
+- Previous "Loading your studio..." stuck issue from iteration_34: RESOLVED
 
 ## Next Action Items
-- Test with actual audio clips to verify timeline expansion > 60s
-- Test clip dragging and auto-scroll behavior with real content
+- Clip regeneration system verification (seed test data for testuser)
+- Add zoom-to-fit button for Audio Studio
+- Performance testing with 50+ synthetic clips
 
 ## Future / Backlog (P1-P2)
 - Deepgram + ElevenLabs integration (keys not provided yet)
 - Google OAuth configuration
 - PWA for listener experience
-- Waveform visualization for audio clips
-- Virtual clip rendering for performance (large timelines)
+- Canvas-based waveform rendering (optional high-impact)
+- Fix ESLint `react-hooks/exhaustive-deps` warnings across codebase
+- Virtual clip rendering for extremely large timelines (1000+ clips)
 - Zoom level presets UI
+- Audio engine separation (Web Audio on separate thread via AudioWorklet)
