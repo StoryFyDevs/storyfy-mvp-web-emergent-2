@@ -80,7 +80,7 @@ function AudioStudio() {
   const [dragStartY, setDragStartY] = useState(0);
   const [dragStartTime, setDragStartTime] = useState(0);
   const [dragTargetTrackId, setDragTargetTrackId] = useState(null);
-  const [dragGhostPosition, setDragGhostPosition] = useState({ x: 0, y: 0 });
+  // dragGhostPosition removed — drag now uses direct DOM manipulation via dragClipRef
   
   // Clip renaming state
   const [editingClipId, setEditingClipId] = useState(null);
@@ -115,6 +115,17 @@ function AudioStudio() {
   const timelineViewportRef = useRef(null); // For horizontal scrolling
   const saveTimeoutRef = useRef(null); // For debounced auto-save
   const lastSavedStateRef = useRef(null); // Track last saved state to prevent duplicate saves
+  
+  // === PERFORMANCE REFS — direct DOM manipulation without React re-renders ===
+  const playheadRef = useRef(null);
+  const playheadLabelRef = useRef(null);
+  const transportTimeRef = useRef(null);
+  const timelineTimeRef = useRef(0);
+  const pixelsPerSecondRef = useRef(DEFAULT_PIXELS_PER_SECOND);
+  const dragClipRef = useRef(null);
+  const dragNewStartRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const scrollRafRef = useRef(null);
   
   // Loading state
   const loadingRef = useRef(false);
@@ -158,6 +169,11 @@ function AudioStudio() {
   const playheadPosition = useMemo(() => {
     return timeToPixels(timelineTime);
   }, [timelineTime, timeToPixels]);
+  
+  // === Keep shadow refs in sync with React state (for rAF-based updates) ===
+  useEffect(() => { timelineTimeRef.current = timelineTime; }, [timelineTime]);
+  useEffect(() => { pixelsPerSecondRef.current = pixelsPerSecond; }, [pixelsPerSecond]);
+  useEffect(() => { scrollLeftRef.current = scrollLeft; }, [scrollLeft]);
   
   // ========== AUDIO CONTEXT INITIALIZATION ==========
   useEffect(() => {
@@ -316,7 +332,7 @@ function AudioStudio() {
       });
     });
     
-    // Start the animation frame loop for UI updates
+    // Start the animation frame loop for UI updates (direct DOM — no React state)
     const updateLoop = () => {
       if (!isPlayingRef.current) return;
       
@@ -333,18 +349,41 @@ function AudioStudio() {
         return;
       }
       
-      setTimelineTime(newTime);
+      // Direct DOM updates — bypasses React re-render entirely
+      timelineTimeRef.current = newTime;
+      const pps = pixelsPerSecondRef.current;
+      const pxPos = newTime * pps;
       
-      // Update debug info
-      if (showDebugOverlay) {
-        updateDebugInfo(newTime);
+      if (playheadRef.current) {
+        playheadRef.current.style.transform = `translateX(${pxPos}px)`;
+      }
+      if (playheadLabelRef.current) {
+        const mins = Math.floor(newTime / 60);
+        const secs = Math.floor(newTime % 60);
+        const ms = Math.floor((newTime % 1) * 1000);
+        playheadLabelRef.current.textContent = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+      }
+      if (transportTimeRef.current) {
+        const mins = Math.floor(newTime / 60);
+        const secs = Math.floor(newTime % 60);
+        const ms = Math.floor((newTime % 1) * 1000);
+        transportTimeRef.current.textContent = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+      }
+      
+      // Auto-scroll viewport when playhead approaches edge
+      const viewport = timelineViewportRef.current;
+      if (viewport) {
+        const playheadScreenPos = pxPos - viewport.scrollLeft;
+        if (playheadScreenPos > viewport.clientWidth - 100) {
+          viewport.scrollLeft = pxPos - viewport.clientWidth + 200;
+        }
       }
       
       animationFrameRef.current = requestAnimationFrame(updateLoop);
     };
     
     animationFrameRef.current = requestAnimationFrame(updateLoop);
-  }, [timelineTime, timelineDuration, tracks, showDebugOverlay, ensureAudioContext]);
+  }, [timelineTime, timelineDuration, tracks, ensureAudioContext]);
   
   // Schedule a single clip for playback using Web Audio API
   const scheduleClipPlayback = useCallback((ctx, track, clip, currentTime) => {
@@ -415,6 +454,9 @@ function AudioStudio() {
   const stopPlayback = useCallback(() => {
     setIsPlaying(false);
     isPlayingRef.current = false;
+    
+    // Sync final playback time to React state (single re-render)
+    setTimelineTime(timelineTimeRef.current);
     
     // Stop all active sources
     Object.values(audioSourcesRef.current).forEach(source => {
@@ -521,28 +563,19 @@ function AudioStudio() {
   // ========== HORIZONTAL SCROLL HANDLING ==========
   const handleTimelineScroll = useCallback((e) => {
     const newScrollLeft = e.target.scrollLeft;
-    setScrollLeft(newScrollLeft);
+    scrollLeftRef.current = newScrollLeft;
     
-    // Update debug info
-    setDebugInfo(prev => ({
-      ...prev,
-      scrollLeft: newScrollLeft
-    }));
+    // Throttled state update via rAF (max once per frame for virtualization)
+    if (!scrollRafRef.current) {
+      scrollRafRef.current = requestAnimationFrame(() => {
+        setScrollLeft(scrollLeftRef.current);
+        scrollRafRef.current = null;
+      });
+    }
   }, []);
   
-  // Auto-scroll when playhead approaches edge during playback
-  useEffect(() => {
-    if (!isPlaying || !timelineViewportRef.current) return;
-    
-    const viewport = timelineViewportRef.current;
-    const viewportWidth = viewport.clientWidth;
-    const playheadScreenPos = playheadPosition - viewport.scrollLeft;
-    
-    // Auto-scroll when playhead is within 100px of right edge
-    if (playheadScreenPos > viewportWidth - 100) {
-      viewport.scrollLeft = playheadPosition - viewportWidth + 200;
-    }
-  }, [isPlaying, playheadPosition]);
+  // Auto-scroll during playback is handled inside the rAF updateLoop
+  // (moved there to avoid React re-renders on every frame)
   
   // ========== VOLUME CONTROL ==========
   // Update gain nodes in real-time when volume changes
@@ -903,13 +936,16 @@ function AudioStudio() {
     e.stopPropagation();
     e.preventDefault();
     
+    // Capture DOM element for direct manipulation during drag
+    dragClipRef.current = e.currentTarget;
+    dragNewStartRef.current = clip.start;
+    
     setIsDraggingClip(true);
     setDraggedClip({ trackId, clip });
     setDragStartX(e.clientX);
     setDragStartY(e.clientY);
     setDragStartTime(clip.start);
     setDragTargetTrackId(trackId);
-    setDragGhostPosition({ x: e.clientX, y: e.clientY });
     setSelectedClip({ ...clip, trackId });
     
     // Add grabbing cursor to body
@@ -928,17 +964,19 @@ function AudioStudio() {
       // Calculate new start time from X movement
       const deltaX = e.clientX - dragStartX;
       const deltaTime = pixelsToTime(deltaX);
-      let newStart = Math.max(0, dragStartTime + deltaTime);
+      const newStart = Math.max(0, dragStartTime + deltaTime);
       
-      // NO upper clamp — timeline expands dynamically via useMemo
+      // Store position in ref (no React re-render)
+      dragNewStartRef.current = newStart;
       
-      // Detect target track from Y position
+      // Direct DOM manipulation for smooth 60fps dragging
+      if (dragClipRef.current) {
+        const pxPos = newStart * pixelsPerSecondRef.current;
+        dragClipRef.current.style.transform = `translateX(${pxPos}px) translateY(-2px)`;
+      }
+      
+      // Cross-track detection (state update only when track actually changes)
       const targetTrackId = getTrackAtPosition(e.clientY);
-      
-      // Update ghost position for visual feedback
-      setDragGhostPosition({ x: e.clientX, y: e.clientY });
-      
-      // Update target track highlight
       if (targetTrackId && targetTrackId !== dragTargetTrackId) {
         setDragTargetTrackId(targetTrackId);
       }
@@ -954,11 +992,8 @@ function AudioStudio() {
           viewport.scrollLeft = Math.max(0, viewport.scrollLeft - 15);
         }
       }
-      
-      // Update clip position in current track (visual preview)
-      updateClip(draggedClip.trackId, draggedClip.clip.id, { start: newStart });
     });
-  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, getTrackAtPosition, dragTargetTrackId, updateClip]);
+  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, getTrackAtPosition, dragTargetTrackId]);
   
   const handleClipMouseUp = useCallback((e) => {
     if (!isDraggingClip || !draggedClip) {
@@ -975,31 +1010,26 @@ function AudioStudio() {
     // Restore cursor
     document.body.style.cursor = '';
     
-    // Calculate final position
-    const deltaX = e.clientX - dragStartX;
-    const deltaTime = pixelsToTime(deltaX);
-    let newStart = Math.max(0, dragStartTime + deltaTime);
-    // NO upper clamp — timeline expands dynamically
+    // Use ref-tracked position accumulated during drag
+    const newStart = dragNewStartRef.current;
     
     // Detect final target track
     const targetTrackId = getTrackAtPosition(e.clientY) || draggedClip.trackId;
     
-    // Move clip to new position/track
+    // Commit final position to React state (single re-render)
     if (targetTrackId !== draggedClip.trackId) {
-      // Cross-track move
       moveClipToTrack(draggedClip.trackId, targetTrackId, draggedClip.clip.id, newStart);
     } else {
-      // Same track, just update time
       updateClip(draggedClip.trackId, draggedClip.clip.id, { start: newStart });
-      toast.success('Clip repositioned');
     }
     
-    // Reset drag state
+    // Clear drag state
+    dragClipRef.current = null;
+    dragNewStartRef.current = 0;
     setIsDraggingClip(false);
     setDraggedClip(null);
     setDragTargetTrackId(null);
-    setDragGhostPosition({ x: 0, y: 0 });
-  }, [isDraggingClip, draggedClip, dragStartX, dragStartTime, pixelsToTime, getTrackAtPosition, moveClipToTrack, updateClip]);
+  }, [isDraggingClip, draggedClip, getTrackAtPosition, moveClipToTrack, updateClip]);
   
   // Global mouse move/up handlers for dragging
   useEffect(() => {
@@ -1578,7 +1608,7 @@ function AudioStudio() {
           
           if (replaced) {
             // Clear any cached audio buffer for this clip
-            audioBufferCache.current.delete(url);
+            // Old buffer keyed by previous clip ID will be garbage-collected
             toast.success(`Dialogue ${dialogueIndex + 1} clip replaced in timeline`);
           }
           return replaced ? updatedTracks : prevTracks;
@@ -2352,27 +2382,31 @@ function AudioStudio() {
                     ref={timelineViewportRef}
                     className="flex-1 overflow-x-auto overflow-y-hidden ml-2"
                     onScroll={handleTimelineScroll}
+                    style={{ willChange: 'scroll-position' }}
                   >
                     {/* Timeline Content - All elements share this container for sync */}
                     <div 
                       className="relative"
                       style={{ width: `${timelineWidth}px`, minHeight: '100%' }}
                     >
-                      {/* PLAYHEAD - Positioned relative to timeline content */}
+                      {/* PLAYHEAD - GPU-accelerated via transform */}
                       <div
+                        ref={playheadRef}
                         className="absolute top-0 w-0.5 bg-neon-cyan pointer-events-none"
                         style={{ 
-                          left: `${playheadPosition}px`,
+                          left: 0,
+                          transform: `translateX(${playheadPosition}px)`,
                           height: '100%',
                           zIndex: 50,
+                          willChange: 'transform',
                           boxShadow: '0 0 20px rgba(0, 240, 255, 0.9), 0 0 8px rgba(0, 240, 255, 1)',
-                          transition: isPlaying ? 'none' : 'left 0.05s linear'
+                          transition: isPlaying ? 'none' : 'transform 0.05s linear'
                         }}
                       >
                         {/* Playhead Top Indicator */}
                         <div className="absolute top-0 left-1/2 transform -translate-x-1/2 flex flex-col items-center -mt-1 z-50">
                           <div className="w-4 h-4 bg-neon-cyan rounded-full shadow-lg border-2 border-white mb-1" />
-                          <div className="text-xs font-mono font-bold text-neon-cyan whitespace-nowrap bg-obsidian/90 px-2 py-0.5 rounded border border-neon-cyan/30">
+                          <div ref={playheadLabelRef} className="text-xs font-mono font-bold text-neon-cyan whitespace-nowrap bg-obsidian/90 px-2 py-0.5 rounded border border-neon-cyan/30">
                             {formatTime(timelineTime)}
                           </div>
                         </div>
@@ -2424,7 +2458,14 @@ function AudioStudio() {
                               </div>
                             )}
                             
-                            {track.clips.map((clip) => {
+                            {track.clips.filter(clip => {
+                              // Viewport-based virtualization — only render visible clips
+                              const clipStartPx = timeToPixels(clip.start);
+                              const clipEndPx = timeToPixels(clip.start + clip.duration);
+                              const viewStart = scrollLeft - 300;
+                              const viewEnd = scrollLeft + (timelineViewportRef.current?.clientWidth || 2000) + 300;
+                              return clipEndPx >= viewStart && clipStartPx <= viewEnd;
+                            }).map((clip) => {
                               const clipLeft = timeToPixels(clip.start);
                               const clipWidth = timeToPixels(clip.duration);
                               const isBeingDragged = isDraggingClip && draggedClip?.clip.id === clip.id;
@@ -2439,10 +2480,11 @@ function AudioStudio() {
                                     selectedClip?.id === clip.id ? 'border-neon-cyan shadow-lg shadow-neon-cyan/50' : 'border-neon-cyan/50'
                                   } ${isBeingDragged ? 'opacity-60 scale-105 shadow-xl' : ''}`}
                                   style={{
-                                    left: `${clipLeft}px`,
+                                    left: 0,
+                                    transform: `translateX(${clipLeft}px)${isBeingDragged ? ' translateY(-2px)' : ''}`,
                                     width: `${Math.max(clipWidth, 60)}px`,
                                     zIndex: isBeingDragged ? 100 : (selectedClip?.id === clip.id ? 20 : 10),
-                                    transform: isBeingDragged ? 'translateY(-2px)' : 'none'
+                                    willChange: isBeingDragged ? 'transform' : 'auto',
                                   }}
                                   onMouseDown={(e) => !isEditing && !isLocked && handleClipMouseDown(e, track.id, clip)}
                                   onClick={(e) => {
@@ -2525,7 +2567,7 @@ function AudioStudio() {
                                       <div
                                         key={i}
                                         className="flex-1 bg-neon-cyan/40 rounded-t min-w-[1px]"
-                                        style={{ height: `${20 + Math.sin(i * 0.5) * 30 + Math.random() * 50}%` }}
+                                        style={{ height: `${20 + Math.sin(i * 0.5) * 30 + Math.abs(Math.sin(i * 127.1 + (clip.id?.charCodeAt(0) || 0) * 311.7)) * 50}%` }}
                                       />
                                     ))}
                                   </div>
@@ -2743,7 +2785,7 @@ function AudioStudio() {
               <SkipBack className="w-5 h-5" />
             </Button>
             
-            <span className="text-neon-cyan text-base font-mono font-bold min-w-[100px]">
+            <span ref={transportTimeRef} className="text-neon-cyan text-base font-mono font-bold min-w-[100px]">
               {formatTime(timelineTime)}
             </span>
             <span className="text-text-secondary text-sm">/</span>
