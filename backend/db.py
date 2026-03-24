@@ -34,7 +34,10 @@ supabase: Client = create_client(supabase_url, supabase_anon_key)
 supabase_admin: Client = create_client(supabase_url, supabase_service_key)
 
 AUDIO_BUCKET_NAME = os.environ.get('SUPABASE_AUDIO_BUCKET', 'storyfy-audio')
-JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
+JWT_SECRET = os.environ.get('JWT_SECRET', '')
+if not JWT_SECRET:
+    import secrets
+    JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = 'HS256'
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', '')
 ADMIN_SECRET_PATH = os.environ.get('ADMIN_SECRET_PATH', 'admin-9821')
