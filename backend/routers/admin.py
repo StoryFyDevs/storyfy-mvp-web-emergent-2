@@ -87,10 +87,18 @@ async def admin_stats(authorization: Optional[str] = Header(None)):
     active_7d = total_creators
     active_30d = total_creators
 
-    # Aggregate generation stats
-    gen_logs = await ndb.find_many("generation_logs", {"status": "success"}, limit=10000)
-    total_limits_consumed = sum(log.get("text_length", 0) for log in gen_logs)
-    total_audio_seconds = sum(log.get("duration_seconds", 0) for log in gen_logs)
+    # Aggregate generation stats (use limited count instead of fetching all rows)
+    gen_count = await ndb.count_rows("generation_logs", {"status": "success"})
+    total_limits_consumed = 0
+    total_audio_seconds = 0
+    if gen_count > 0:
+        gen_sample = await ndb.find_many("generation_logs", {"status": "success"}, limit=500)
+        total_limits_consumed = sum(log.get("text_length", 0) for log in gen_sample)
+        total_audio_seconds = sum(log.get("duration_seconds", 0) for log in gen_sample)
+        if gen_count > 500:
+            scale = gen_count / len(gen_sample) if gen_sample else 1
+            total_limits_consumed = int(total_limits_consumed * scale)
+            total_audio_seconds = total_audio_seconds * scale
     total_audio_minutes = round(total_audio_seconds / 60, 2)
 
     # Storage stats (approximate)
@@ -121,12 +129,24 @@ async def admin_list_users(authorization: Optional[str] = Header(None)):
         limit=500
     )
 
+    # Batch fetch stories and episodes counts to avoid N+1 queries
+    user_ids = [u.get("user_id", "") for u in users]
+    stories = await ndb.find_many("stories", limit=10000) if user_ids else []
+    episodes = await ndb.find_many("episodes", limit=10000) if user_ids else []
+
+    stories_by_user = {}
+    for s in stories:
+        uid = s.get("created_by", "")
+        stories_by_user[uid] = stories_by_user.get(uid, 0) + 1
+
+    episodes_by_user = {}
+    for e in episodes:
+        uid = e.get("created_by", "")
+        episodes_by_user[uid] = episodes_by_user.get(uid, 0) + 1
+
     result = []
     for u in users:
         user_id = u.get("user_id", "")
-        stories_count = await ndb.count_rows("stories", {"created_by": user_id})
-        episodes_count = await ndb.count_rows("episodes", {"created_by": user_id})
-
         result.append({
             "user_id": user_id,
             "email": u.get("email", ""),
@@ -137,8 +157,8 @@ async def admin_list_users(authorization: Optional[str] = Header(None)):
             "audition_credits": u.get("audition_credits", 0),
             "storage_used_mb": 0,
             "storage_limit_mb": 500,
-            "stories_count": stories_count,
-            "episodes_count": episodes_count,
+            "stories_count": stories_by_user.get(user_id, 0),
+            "episodes_count": episodes_by_user.get(user_id, 0),
             "total_credits_used": 0,
             "total_audio_seconds": 0,
             "total_generations": 0,

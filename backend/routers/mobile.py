@@ -68,36 +68,61 @@ def _resolve_audio_url(raw_url: str) -> Optional[str]:
         return None
 
 
-async def _enrich_story(story: dict) -> dict:
-    story_id = story.get("story_id", "")
-    user_id = story.get("created_by", "")
+async def _enrich_stories_batch(stories: list) -> list:
+    """Batch-enrich stories to avoid N+1 queries."""
+    if not stories:
+        return []
 
-    episodes = await ndb.find_many(
+    story_ids = [s.get("story_id", "") for s in stories]
+    creator_ids = list(set(s.get("created_by", "") for s in stories if s.get("created_by")))
+
+    all_episodes = await ndb.find_many(
         "episodes",
-        {"story_id": story_id, "is_published": True},
-        fields=["id", "duration"],
-        limit=200,
+        {"is_published": True},
+        fields=["story_id", "duration"],
+        limit=5000,
     )
-    total_eps = len(episodes)
-    total_dur = sum(e.get("duration", 0) or 0 for e in episodes)
 
-    creator = await ndb.find_one("user_profiles", {"user_id": user_id}, fields=["name"])
-    creator_name = creator.get("name", "Unknown") if creator else "Unknown"
+    ep_counts = {}
+    ep_durations = {}
+    for ep in all_episodes:
+        sid = ep.get("story_id", "")
+        if sid in story_ids:
+            ep_counts[sid] = ep_counts.get(sid, 0) + 1
+            ep_durations[sid] = ep_durations.get(sid, 0) + (ep.get("duration", 0) or 0)
 
-    return {
-        "story_id": story_id,
-        "title": story.get("title", ""),
-        "description": story.get("description", ""),
-        "genre": story.get("genre", ""),
-        "language": story.get("language", ""),
-        "cover_art_url": story.get("cover_art_url", ""),
-        "story_type": story.get("story_type", "story"),
-        "play_count": story.get("play_count", 0),
-        "total_episodes": total_eps,
-        "total_duration_seconds": round(total_dur, 2),
-        "creator_name": creator_name,
-        "publishedAt": str(story.get("published_at", "")),
-    }
+    creators = {}
+    if creator_ids:
+        creator_rows = await ndb.find_many("user_profiles", limit=1000)
+        for c in creator_rows:
+            creators[c.get("user_id", "")] = c.get("name", "Unknown")
+
+    result = []
+    for story in stories:
+        sid = story.get("story_id", "")
+        uid = story.get("created_by", "")
+        result.append({
+            "story_id": sid,
+            "title": story.get("title", ""),
+            "description": story.get("description", ""),
+            "genre": story.get("genre", ""),
+            "language": story.get("language", ""),
+            "cover_art_url": story.get("cover_art_url", ""),
+            "story_type": story.get("story_type", "story"),
+            "play_count": story.get("play_count", 0),
+            "total_episodes": ep_counts.get(sid, 0),
+            "total_duration_seconds": round(ep_durations.get(sid, 0), 2),
+            "creator_name": creators.get(uid, "Unknown"),
+            "publishedAt": str(story.get("published_at", "")),
+        })
+    return result
+
+
+async def _enrich_story(story: dict) -> dict:
+    """Enrich a single story with episode counts and creator name."""
+    result = await _enrich_stories_batch([story])
+    return result[0] if result else story
+
 
 
 @mobile_v1_router.post("/auth/signup")
@@ -188,8 +213,7 @@ async def mobile_home(authorization: Optional[str] = Header(None)):
         order_by={"play_count": "desc"},
         limit=12,
     )
-    for s in published_stories:
-        trending.append(await _enrich_story(s))
+    trending = await _enrich_stories_batch(published_stories)
 
     latest_stories = await ndb.find_many(
         "stories",
@@ -197,8 +221,7 @@ async def mobile_home(authorization: Optional[str] = Header(None)):
         order_by={"published_at": "desc"},
         limit=12,
     )
-    for s in latest_stories:
-        latest.append(await _enrich_story(s))
+    latest = await _enrich_stories_batch(latest_stories)
 
     if listener:
         listener_id = listener["user_id"]
@@ -208,26 +231,34 @@ async def mobile_home(authorization: Optional[str] = Header(None)):
             order_by={"updated_at": "desc"},
             limit=12,
         )
-        for p in progress_rows:
-            ep = await ndb.find_one("episodes", {"episode_id": p["episode_id"], "is_published": True})
-            if not ep:
-                continue
-            story = await ndb.find_one("stories", {"story_id": ep["story_id"], "status": "published"})
-            if not story:
-                continue
-            dur = ep.get("duration", 0) or 0
-            ct = p.get("current_time", 0) or 0
-            continue_listening.append({
-                "episode_id": ep["episode_id"],
-                "episode_title": ep.get("title", ""),
-                "episode_number": ep.get("order_index", 0),
-                "story_id": ep["story_id"],
-                "story_title": story.get("title", ""),
-                "cover_art_url": story.get("cover_art_url", ""),
-                "current_time": ct,
-                "duration": dur,
-                "progress_percent": round((ct / dur) * 100, 1) if dur > 0 else 0,
-            })
+        if progress_rows:
+            ep_ids = [p.get("episode_id", "") for p in progress_rows]
+            all_eps = await ndb.find_many("episodes", {"is_published": True}, limit=5000)
+            ep_map = {e["episode_id"]: e for e in all_eps if e.get("episode_id") in ep_ids}
+            story_ids = list(set(e.get("story_id", "") for e in ep_map.values()))
+            all_stories = await ndb.find_many("stories", {"status": "published"}, limit=5000)
+            story_map = {s["story_id"]: s for s in all_stories if s.get("story_id") in story_ids}
+
+            for p in progress_rows:
+                ep = ep_map.get(p.get("episode_id"))
+                if not ep:
+                    continue
+                story = story_map.get(ep.get("story_id"))
+                if not story:
+                    continue
+                dur = ep.get("duration", 0) or 0
+                ct = p.get("current_time", 0) or 0
+                continue_listening.append({
+                    "episode_id": ep["episode_id"],
+                    "episode_title": ep.get("title", ""),
+                    "episode_number": ep.get("order_index", 0),
+                    "story_id": ep["story_id"],
+                    "story_title": story.get("title", ""),
+                    "cover_art_url": story.get("cover_art_url", ""),
+                    "current_time": ct,
+                    "duration": dur,
+                    "progress_percent": round((ct / dur) * 100, 1) if dur > 0 else 0,
+                })
 
     return {
         "trending": trending,
