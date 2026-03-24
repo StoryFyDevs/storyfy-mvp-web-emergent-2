@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 const base = process.env.REACT_APP_BACKEND_URL;
 
 const ERROR_MESSAGES = {
-  audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+  audio_access_disabled: 'Audio generation access is currently disabled. Please wait for approval or contact support.',
   insufficient_generation_credits: 'You have no generation credits remaining.',
   insufficient_audition_credits: 'You have no audition credits remaining.',
 };
@@ -747,7 +747,7 @@ function ScriptEditor() {
             {audioDisabled && (
               <div className="bg-red-500/10 border-b border-red-500/30 px-6 py-3 flex items-center gap-2" data-testid="audio-disabled-banner">
                 <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                <span className="text-red-300 text-sm">Audio access is currently disabled. Please wait for approval or contact support.</span>
+                <span className="text-red-300 text-sm">Audio generation access is currently disabled. Please wait for approval or contact support.</span>
               </div>
             )}
 

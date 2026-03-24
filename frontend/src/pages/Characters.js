@@ -79,7 +79,7 @@ function Characters() {
   const audioDisabled = credits.generation_status !== 'active';
 
   const ERROR_MESSAGES = {
-    audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+    audio_access_disabled: 'Audio generation access is currently disabled. Please wait for approval or contact support.',
     insufficient_generation_credits: 'You have no generation credits remaining.',
     insufficient_audition_credits: 'You have no audition credits remaining.',
   };
@@ -150,7 +150,7 @@ function Characters() {
 
     if (credits.audition_credits <= 0) { toast.error('You have no audition credits remaining.'); return; }
     if (audioDisabled) {
-      toast.error('Audio access is currently disabled. Please wait for approval or contact support.');
+      toast.error('Audio generation access is currently disabled. Please wait for approval or contact support.');
       return;
     }
     if (!generationStatus.can_generate) { 
@@ -330,7 +330,7 @@ function Characters() {
         <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30" data-testid="audio-disabled-warning">
           <p className="text-red-300 text-sm flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
-            Audio access is currently disabled. Please wait for approval or contact support.
+            Audio generation access is currently disabled. Please wait for approval or contact support.
           </p>
         </div>
       )}

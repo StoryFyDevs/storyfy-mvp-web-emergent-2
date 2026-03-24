@@ -169,7 +169,7 @@ function VoiceGenerator() {
   const audioDisabled = credits.generation_status !== 'active';
 
   const ERROR_MESSAGES = {
-    audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+    audio_access_disabled: 'Audio generation access is currently disabled. Please wait for approval or contact support.',
     insufficient_generation_credits: 'You have no generation credits remaining.',
     insufficient_audition_credits: 'You have no audition credits remaining.',
   };
@@ -406,7 +406,7 @@ function VoiceGenerator() {
       {audioDisabled && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-5 py-3 mb-6 flex items-center gap-3" data-testid="audio-disabled-warning">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-          <span className="text-red-300 text-sm">Audio access is currently disabled. Please wait for approval or contact support.</span>
+          <span className="text-red-300 text-sm">Audio generation access is currently disabled. Please wait for approval or contact support.</span>
         </div>
       )}
 

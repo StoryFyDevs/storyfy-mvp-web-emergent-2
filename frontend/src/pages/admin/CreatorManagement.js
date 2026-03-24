@@ -79,7 +79,7 @@ function CreatorManagement() {
       });
       const data = await res.json().catch(() => ({ detail: 'Failed to process response' }));
       if (!res.ok) throw new Error(data.detail || 'Failed to toggle audio access');
-      toast.success(`Audio access ${enabling ? 'enabled' : 'disabled'}`);
+      toast.success(`Audio gen access ${enabling ? 'enabled' : 'disabled'}`);
       fetchUsers();
     } catch (err) {
       toast.error(err.message || 'Failed to toggle audio access');
@@ -203,7 +203,7 @@ function CreatorManagement() {
               <thead>
                 <tr className="border-b border-white/5 text-text-secondary text-xs uppercase tracking-wider">
                   <th className="text-left px-4 py-3 font-medium">User</th>
-                  <th className="text-center px-4 py-3 font-medium">Audio Access</th>
+                  <th className="text-center px-4 py-3 font-medium">Audio Gen</th>
                   <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-right px-4 py-3 font-medium">Gen Credits</th>
                   <th className="text-right px-4 py-3 font-medium">Aud Credits</th>
@@ -301,8 +301,8 @@ function CreatorManagement() {
           {/* Audio Access Toggle */}
           <div className="flex items-center justify-between p-3 bg-slate/50 border border-white/5 rounded-sm mt-2">
             <div>
-              <p className="text-white text-sm font-medium">Audio Access</p>
-              <p className="text-text-secondary text-xs">Master switch for all audio features</p>
+              <p className="text-white text-sm font-medium">Audio Gen Access</p>
+              <p className="text-text-secondary text-xs">Master switch for all audio generation features</p>
             </div>
             <div className="flex items-center gap-2">
               <span className={`text-xs ${limitDialog.user?.generation_status === 'active' ? 'text-signal-green' : 'text-red-400'}`}>
