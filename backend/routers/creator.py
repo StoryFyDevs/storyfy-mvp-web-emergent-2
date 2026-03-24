@@ -366,11 +366,12 @@ async def create_story(story_data: StoryCreate, authorization: Optional[str] = H
         "sub_genre": getattr(story_data, 'subGenre', '') or '',
         "language": getattr(story_data, 'language', 'hi') or 'hi',
         "description": getattr(story_data, 'description', '') or '',
+        "story_type": getattr(story_data, 'story_type', 'story') or 'story',
         "status": "draft",
         "play_count": 0,
         "cover_image_url": "",
         "cover_art_url": "",
-        "tags": "[]",
+        "tags": [],
     })
     return _to_story(row)
 
