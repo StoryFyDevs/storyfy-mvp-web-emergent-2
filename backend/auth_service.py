@@ -145,9 +145,10 @@ async def get_or_create_profile(auth_id: str, email: str = "", display_name: str
         "email": email or "",
         "name": display_name or (email.split("@")[0] if email else ""),
         "role": role,
-        "generation_credits": 1000,
-        "audition_credits": 500,
-        "limits_remaining": 1000,
+        "generation_credits": 0,
+        "audition_credits": 0,
+        "limits_remaining": 0,
+        "generation_status": "active" if role == "admin" else "inactive",
         "is_active": True,
     }
     profile = await db.insert_one("user_profiles", new_profile)

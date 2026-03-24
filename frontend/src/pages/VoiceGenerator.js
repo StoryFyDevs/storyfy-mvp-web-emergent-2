@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Badge } from '../components/ui/badge';
 import { Switch } from '../components/ui/switch';
-import { Play, Square, Loader2, Sparkles, Users, Mic, Settings, History, User, Trash2, Plus, Music, Wand2, ShieldCheck, ArrowRight, Check, Type, MessageSquare, Upload, Coins } from 'lucide-react';
+import { Play, Square, Loader2, Sparkles, Users, Mic, Settings, History, User, Trash2, Plus, Music, Wand2, ShieldCheck, ArrowRight, Check, Type, MessageSquare, Upload, Coins, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 const AUDIO_TAGS = {
@@ -166,6 +166,15 @@ function VoiceGenerator() {
     } catch (e) { console.error(e); }
   };
 
+  const audioDisabled = credits.generation_status !== 'active';
+
+  const ERROR_MESSAGES = {
+    audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+    insufficient_generation_credits: 'You have no generation credits remaining.',
+    insufficient_audition_credits: 'You have no audition credits remaining.',
+  };
+  const mapError = (detail) => ERROR_MESSAGES[detail] || detail;
+
   const loadHistory = () => { try { const s = localStorage.getItem(`voice_history_${storyId}`); if (s) setHistory(JSON.parse(s)); } catch (e) {} };
   const saveToHistory = (item) => { const h = [item, ...history].slice(0, MAX_HISTORY); setHistory(h); localStorage.setItem(`voice_history_${storyId}`, JSON.stringify(h)); };
   const clearHistory = () => { setHistory([]); localStorage.removeItem(`voice_history_${storyId}`); toast.success('History cleared'); };
@@ -210,11 +219,9 @@ function VoiceGenerator() {
       const genData = await genRes.json().catch(() => ({ detail: 'Failed to process response' }));
       
       if (!genRes.ok) { 
-        // Map technical errors to user-friendly messages
-        let errorMsg = genData.detail || 'Generation failed';
-        if (errorMsg.toLowerCase().includes('credit')) {
-          errorMsg = 'You do not have enough credits for this generation.';
-        } else if (errorMsg.toLowerCase().includes('rate') || genRes.status === 429) {
+        // Map backend error codes to user-friendly messages
+        let errorMsg = mapError(genData.detail) || genData.detail || 'Generation failed';
+        if (genRes.status === 429) {
           errorMsg = 'Too many requests. Please wait a moment and try again.';
         } else if (genRes.status >= 500) {
           errorMsg = 'Voice generation service is temporarily unavailable. Please try again shortly.';
@@ -395,6 +402,14 @@ function VoiceGenerator() {
         </div>
       </div>
 
+      {/* Audio Disabled Warning */}
+      {audioDisabled && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-5 py-3 mb-6 flex items-center gap-3" data-testid="audio-disabled-warning">
+          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+          <span className="text-red-300 text-sm">Audio access is currently disabled. Please wait for approval or contact support.</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Panel */}
         <div className="lg:col-span-2 space-y-4">
@@ -480,8 +495,8 @@ function VoiceGenerator() {
                   {generating && pipelineStep && <ProgressBar step={pipelineStep} steps={activePipelineSteps} active={true} />}
 
                   <Button onClick={handleGenerateAndPush}
-                    disabled={generating || !text.trim() || !selectedCharacter}
-                    className="w-full h-12 bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 font-semibold text-base"
+                    disabled={audioDisabled || generating || !text.trim() || !selectedCharacter}
+                    className="w-full h-12 bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 font-semibold text-base disabled:opacity-40"
                     data-testid="generate-studio-button">
                     {generating ? (
                       <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{
@@ -535,8 +550,8 @@ function VoiceGenerator() {
 
                     {generating && pipelineStep && <ProgressBar step={pipelineStep} steps={activePipelineSteps} active={true} />}
 
-                    <Button onClick={handleGenerateDialogue} disabled={generating}
-                      className="w-full h-11 bg-electric-purple text-white hover:bg-electric-purple/90 font-semibold" data-testid="generate-dialogue-button">
+                    <Button onClick={handleGenerateDialogue} disabled={audioDisabled || generating}
+                      className="w-full h-11 bg-electric-purple text-white hover:bg-electric-purple/90 font-semibold disabled:opacity-40" data-testid="generate-dialogue-button">
                       {generating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : <><Users className="w-4 h-4 mr-2" />{addToStudio ? 'Generate & Push to Studio' : 'Generate Dialogue'}</>}
                     </Button>
                   </CardContent>

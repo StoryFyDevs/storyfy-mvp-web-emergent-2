@@ -17,6 +17,14 @@ ADMIN_SECRET_PATH = os.environ.get("ADMIN_SECRET_PATH", "admin-9821")
 admin_router = APIRouter(prefix=f"/api/{ADMIN_SECRET_PATH}", tags=["admin"])
 
 
+async def _log_admin_action(data: dict):
+    """Safely log admin actions. Won't fail if table doesn't exist."""
+    try:
+        await ndb.insert_one("usage_logs", data)
+    except Exception:
+        logger.debug(f"Admin log skipped: {data.get('action', 'unknown')}")
+
+
 # ============ AUTH HELPER ============
 
 async def _auth_admin(authorization: Optional[str]) -> dict:
@@ -153,6 +161,7 @@ async def admin_list_users(authorization: Optional[str] = Header(None)):
             "name": u.get("name", ""),
             "role": u.get("role", "creator"),
             "status": "active" if u.get("is_active", True) else "suspended",
+            "generation_status": u.get("generation_status", "inactive"),
             "limits_remaining": u.get("generation_credits", 0),
             "audition_credits": u.get("audition_credits", 0),
             "storage_used_mb": 0,
@@ -187,7 +196,7 @@ async def admin_update_user_status(update: UserStatusUpdate, authorization: Opti
     await ndb.update_rows("user_profiles", {"user_id": update.user_id}, {"is_active": is_active})
 
     # Log admin action
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": f"set_status_{update.status}",
         "target_type": "user",
@@ -226,7 +235,7 @@ async def admin_adjust_limits(request: LimitAdjustRequest, authorization: Option
     })
 
     # Log admin action
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": "adjust_limits",
         "target_type": "user",
@@ -268,6 +277,24 @@ async def admin_adjust_audition_credits(body: Dict, authorization: Optional[str]
     })
 
     return {"message": "Audition credits updated", "new_balance": new_balance}
+
+
+@admin_router.post("/users/audio-access")
+async def admin_toggle_audio_access(body: Dict, authorization: Optional[str] = Header(None)):
+    """Toggle audio access (generation_status) for a creator. Master switch."""
+    admin = await _auth_admin(authorization)
+
+    user_id = body.get("user_id", "")
+    enabled = body.get("enabled", False)
+
+    user = await ndb.find_one("user_profiles", {"user_id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_status = "active" if enabled else "inactive"
+    await ndb.update_rows("user_profiles", {"user_id": user_id}, {"generation_status": new_status})
+
+    return {"message": f"Audio access {'enabled' if enabled else 'disabled'}", "generation_status": new_status}
 
 
 @admin_router.get("/users/{user_id}/transactions")
@@ -575,7 +602,10 @@ async def admin_all_transactions(authorization: Optional[str] = Header(None)):
 async def admin_action_logs(authorization: Optional[str] = Header(None)):
     admin = await _auth_admin(authorization)
 
-    actions = await ndb.find_many("admin_logs", order_by={"created_at": "desc"}, limit=500)
+    try:
+        actions = await ndb.find_many("usage_logs", order_by={"created_at": "desc"}, limit=500)
+    except Exception:
+        actions = []
 
     admin_cache = {}
     result = []
@@ -867,7 +897,7 @@ async def admin_trigger_elevenlabs_validation(authorization: Optional[str] = Hea
         "error": "",
     })
 
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": "trigger_elevenlabs_validation",
         "target_type": "system",
@@ -911,7 +941,7 @@ async def update_voice_settings(body: Dict, authorization: Optional[str] = Heade
     else:
         await ndb.insert_one("voice_settings", {"setting_id": "default", "active_provider": provider})
 
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": "update_voice_settings",
         "target_type": "system",
@@ -955,7 +985,7 @@ async def admin_generate_voice_samples(authorization: Optional[str] = Header(Non
 
     asyncio.create_task(generate_all_voice_samples())
 
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": "generate_voice_samples",
         "target_type": "system",
@@ -1087,7 +1117,7 @@ async def update_generation_limits(body: Dict, authorization: Optional[str] = He
     
     updated = await gq.update_system_limits(limits, admin["user_id"])
     
-    await ndb.insert_one("admin_logs", {
+    await _log_admin_action({
         "admin_id": admin["user_id"],
         "action": "update_generation_limits",
         "target_type": "system",

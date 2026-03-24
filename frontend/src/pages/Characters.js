@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Plus, User, Mic, Play, Square, Trash2, Loader2, Volume2, Coins, Pencil } from 'lucide-react';
+import { Plus, User, Mic, Play, Square, Trash2, Loader2, Volume2, Coins, Pencil, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 function Characters() {
@@ -60,6 +60,9 @@ function Characters() {
       if (res.ok) {
         const data = await res.json();
         setGenerationStatus(data);
+        if (data.message) {
+          setGenerationStatus(prev => ({ ...prev, message: mapError(data.message) }));
+        }
       }
     } catch (e) {
       console.error('Failed to fetch generation status:', e);
@@ -72,6 +75,15 @@ function Characters() {
       if (res.ok) setCredits(await res.json());
     } catch (e) { console.error(e); }
   };
+
+  const audioDisabled = credits.generation_status !== 'active';
+
+  const ERROR_MESSAGES = {
+    audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+    insufficient_generation_credits: 'You have no generation credits remaining.',
+    insufficient_audition_credits: 'You have no audition credits remaining.',
+  };
+  const mapError = (detail) => ERROR_MESSAGES[detail] || detail;
 
   const fetchSampleStatus = async () => {
     try {
@@ -136,9 +148,13 @@ function Characters() {
       return;
     }
 
-    if (credits.audition_credits <= 0) { toast.error('You do not have enough audition credits.'); return; }
+    if (credits.audition_credits <= 0) { toast.error('You have no audition credits remaining.'); return; }
+    if (audioDisabled) {
+      toast.error('Audio access is currently disabled. Please wait for approval or contact support.');
+      return;
+    }
     if (!generationStatus.can_generate) { 
-      toast.error(generationStatus.message || "You've reached today's generation limit. You can generate more audio tomorrow."); 
+      toast.error(generationStatus.message || "You've reached today's generation limit."); 
       return; 
     }
 
@@ -154,11 +170,8 @@ function Characters() {
       const data = await res.json().catch(() => ({ detail: 'Failed to process response' }));
       
       if (!res.ok) {
-        // Map technical errors to user-friendly messages
-        let errorMsg = data.detail || 'Audition failed';
-        if (errorMsg.toLowerCase().includes('credit')) {
-          errorMsg = 'You do not have enough audition credits.';
-        } else if (errorMsg.toLowerCase().includes('rate') || res.status === 429) {
+        let errorMsg = mapError(data.detail) || data.detail || 'Audition failed';
+        if (res.status === 429) {
           errorMsg = 'Too many requests. Please wait a moment and try again.';
         } else if (res.status >= 500) {
           errorMsg = 'Audio service is temporarily unavailable. Please try again shortly.';
@@ -312,8 +325,18 @@ function Characters() {
         </div>
       </div>
 
+      {/* Audio Access Disabled Warning */}
+      {audioDisabled && (
+        <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30" data-testid="audio-disabled-warning">
+          <p className="text-red-300 text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            Audio access is currently disabled. Please wait for approval or contact support.
+          </p>
+        </div>
+      )}
+
       {/* Generation Unavailable Warning */}
-      {!generationStatus.can_generate && (
+      {!audioDisabled && !generationStatus.can_generate && (
         <div className="mb-6 p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
           <p className="text-amber-400 text-sm flex items-center gap-2">
             <Volume2 className="w-4 h-4" />
@@ -427,8 +450,8 @@ function Characters() {
             <div className="flex items-center gap-3">
               <Button
                 onClick={handleAudition}
-                disabled={auditionLoading || !auditionVoice || !auditionText.trim()}
-                className="bg-electric-purple text-white hover:bg-electric-purple/90 text-sm"
+                disabled={audioDisabled || auditionLoading || !auditionVoice || !auditionText.trim()}
+                className="bg-electric-purple text-white hover:bg-electric-purple/90 text-sm disabled:opacity-40"
                 data-testid="audition-generate-button"
               >
                 {auditionLoading ? (

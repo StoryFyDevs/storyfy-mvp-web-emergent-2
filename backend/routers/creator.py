@@ -702,6 +702,7 @@ async def get_credits(authorization: Optional[str] = Header(None)):
     return {
         "generation_credits": profile.get("generation_credits", 0),
         "audition_credits": profile.get("audition_credits", 0),
+        "generation_status": profile.get("generation_status", "inactive"),
     }
 
 
@@ -719,14 +720,16 @@ async def get_generation_status(authorization: Optional[str] = Header(None)):
     if creator_limits.get("allowed"):
         daily_limit = creator_limits.get("daily_limit", 10)
         generations_remaining = max(0, daily_limit - usage_today.get("generation_count", 0))
+        gen_credits = profile.get("generation_credits", 0)
         
         return {
-            "can_generate": generations_remaining > 0,
+            "can_generate": generations_remaining > 0 and gen_credits > 0,
             "generations_remaining": generations_remaining,
             "daily_limit": daily_limit,
             "generations_today": usage_today.get("generation_count", 0),
-            "generation_credits": profile.get("generation_credits", 0),
+            "generation_credits": gen_credits,
             "audition_credits": profile.get("audition_credits", 0),
+            "generation_status": profile.get("generation_status", "inactive"),
             "status": "active"
         }
     else:
@@ -737,8 +740,9 @@ async def get_generation_status(authorization: Optional[str] = Header(None)):
             "generations_today": 0,
             "generation_credits": profile.get("generation_credits", 0),
             "audition_credits": profile.get("audition_credits", 0),
+            "generation_status": profile.get("generation_status", "inactive"),
             "status": creator_limits.get("status", "inactive"),
-            "message": creator_limits.get("reason", "Audio generation is currently unavailable for your account.")
+            "message": creator_limits.get("reason", "audio_access_disabled")
         }
 
 
@@ -748,6 +752,12 @@ async def get_generation_status(authorization: Optional[str] = Header(None)):
 async def audition_voice(body: Dict[str, Any], authorization: Optional[str] = Header(None)):
     profile = await _auth(authorization)
     user_id = profile["user_id"]
+
+    # Master switch: check generation_status
+    gen_status = profile.get("generation_status", "inactive")
+    if gen_status != "active":
+        raise HTTPException(status_code=403, detail="audio_access_disabled")
+
     voice_id = body.get("voice_id", "")
     text = body.get("text", "").strip()
     if not voice_id or not text:
@@ -760,7 +770,7 @@ async def audition_voice(body: Dict[str, Any], authorization: Optional[str] = He
 
     credits = profile.get("audition_credits", 0)
     if credits <= 0:
-        raise HTTPException(status_code=402, detail="You do not have enough audition credits.")
+        raise HTTPException(status_code=402, detail="insufficient_audition_credits")
 
     # Check rate limits
     rate_check = await gq.check_rate_limits(user_id, len(text))
@@ -889,13 +899,18 @@ async def get_voice_preview(voice_id: str, authorization: Optional[str] = Header
 async def generate_tts(request: TTSRequest, authorization: Optional[str] = Header(None)):
     profile = await _auth(authorization)
     user_id = profile["user_id"]
+
+    # Master switch check
+    if profile.get("generation_status", "inactive") != "active":
+        raise HTTPException(status_code=403, detail="audio_access_disabled")
+
     text_length = len(request.text)
     credits_needed = text_length
 
     gen_credits = profile.get("generation_credits", 0)
     if gen_credits < credits_needed:
         await _track_generation(user_id, "voice", text_length, 0, 0, "failed", "internal", request.voice_id, "Insufficient credits")
-        raise HTTPException(status_code=402, detail="You do not have enough credits for this generation.")
+        raise HTTPException(status_code=402, detail="insufficient_generation_credits")
 
     # Check rate limits
     rate_check = await gq.check_rate_limits(user_id, text_length)
@@ -962,10 +977,14 @@ async def generate_tts(request: TTSRequest, authorization: Optional[str] = Heade
 async def generate_dialogue(request: DialogueRequest, authorization: Optional[str] = Header(None)):
     profile = await _auth(authorization)
     user_id = profile["user_id"]
+
+    if profile.get("generation_status", "inactive") != "active":
+        raise HTTPException(status_code=403, detail="audio_access_disabled")
+
     total_text_length = sum(len(s.text) for s in request.inputs)
     gen_credits = profile.get("generation_credits", 0)
     if gen_credits < total_text_length:
-        raise HTTPException(status_code=402, detail="Insufficient credits")
+        raise HTTPException(status_code=402, detail="insufficient_generation_credits")
     try:
         eleven = _get_eleven_client()
         dialogue_inputs = [{"text": s.text, "voice_id": s.voice_id} for s in request.inputs]
@@ -1293,8 +1312,7 @@ async def generate_script_audio(episode_id: str, body: ScriptGenerateRequest, au
     # Check generation access
     creator_limits = await gq.get_creator_limits(user_id)
     if not creator_limits.get("allowed"):
-        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "Generation not available"))
-
+        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "audio_access_disabled"))
     # Detect deleted dialogues by comparing with previously saved script
     import json as _json
     previous_raw = ep.get("script_content", "")
@@ -1383,8 +1401,7 @@ async def regenerate_dialogue_clip(
 
     creator_limits = await gq.get_creator_limits(user_id)
     if not creator_limits.get("allowed"):
-        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "Generation not available"))
-
+        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "audio_access_disabled"))
     story_id = ep.get("story_id", "")
 
     import queue_worker as qw

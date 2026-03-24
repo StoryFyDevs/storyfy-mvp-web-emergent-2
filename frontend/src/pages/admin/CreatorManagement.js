@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Shield, LogOut, Search, Plus, Minus, Eye, Zap, Clock, HardDrive, Activity, X } from 'lucide-react';
+import { Shield, LogOut, Search, Eye, Zap, Clock, HardDrive, Activity, Power, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
+import { Switch } from '../../components/ui/switch';
 
 function CreatorManagement() {
   const [users, setUsers] = useState([]);
@@ -26,7 +27,7 @@ function CreatorManagement() {
   useEffect(() => {
     if (!token) { navigate('/admin-access/login'); return; }
     fetchUsers();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchUsers = async () => {
     try {
@@ -65,6 +66,23 @@ function CreatorManagement() {
       setUsageDetail(null);
     } finally {
       setUsageLoading(false);
+    }
+  };
+
+  const toggleAudioAccess = async (userId, currentStatus) => {
+    const enabling = currentStatus !== 'active';
+    try {
+      const res = await fetch(`${base}/api/admin-9821/users/audio-access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ user_id: userId, enabled: enabling })
+      });
+      const data = await res.json().catch(() => ({ detail: 'Failed to process response' }));
+      if (!res.ok) throw new Error(data.detail || 'Failed to toggle audio access');
+      toast.success(`Audio access ${enabling ? 'enabled' : 'disabled'}`);
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to toggle audio access');
     }
   };
 
@@ -136,6 +154,11 @@ function CreatorManagement() {
     return map[status] || map.active;
   };
 
+  const audioAccessBadge = (genStatus) => {
+    if (genStatus === 'active') return 'bg-signal-green/15 text-signal-green border-signal-green/30';
+    return 'bg-red-500/15 text-red-400 border-red-500/30';
+  };
+
   const fmtNum = (n) => n != null ? n.toLocaleString() : '0';
   const fmtBytes = (b) => { if (!b) return '0 B'; if (b < 1024) return `${b} B`; if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`; return `${(b / 1048576).toFixed(1)} MB`; };
   const fmtDate = (d) => d ? new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
@@ -180,13 +203,12 @@ function CreatorManagement() {
               <thead>
                 <tr className="border-b border-white/5 text-text-secondary text-xs uppercase tracking-wider">
                   <th className="text-left px-4 py-3 font-medium">User</th>
+                  <th className="text-center px-4 py-3 font-medium">Audio Access</th>
                   <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-right px-4 py-3 font-medium">Gen Credits</th>
                   <th className="text-right px-4 py-3 font-medium">Aud Credits</th>
-                  <th className="text-right px-4 py-3 font-medium">Credits Used</th>
-                  <th className="text-right px-4 py-3 font-medium">Audio (min)</th>
-                  <th className="text-right px-4 py-3 font-medium">Generations</th>
-                  <th className="text-right px-4 py-3 font-medium">Storage</th>
+                  <th className="text-right px-4 py-3 font-medium">Stories</th>
+                  <th className="text-right px-4 py-3 font-medium">Episodes</th>
                   <th className="text-center px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -201,6 +223,22 @@ function CreatorManagement() {
                         <p className="text-text-secondary text-xs">{u.email}</p>
                         <span className="text-xs text-text-secondary/60 capitalize">{u.role || 'creator'}</span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {u.role !== 'admin' ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <Switch
+                              checked={u.generation_status === 'active'}
+                              onCheckedChange={() => toggleAudioAccess(u.user_id, u.generation_status)}
+                              data-testid={`audio-toggle-${u.user_id}`}
+                            />
+                            <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full border ${audioAccessBadge(u.generation_status)}`}>
+                              {u.generation_status === 'active' ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-text-secondary/40 text-xs">N/A</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={`inline-block text-xs px-2 py-0.5 rounded-full border ${statusBadge(u.status || 'active')}`}>
                           {u.status || 'active'}
@@ -212,17 +250,11 @@ function CreatorManagement() {
                       <td className={`px-4 py-3 text-right font-mono text-xs ${(u.audition_credits ?? 0) < 50 ? 'text-red-400' : 'text-electric-purple'}`} data-testid={`audition-credits-${u.user_id}`}>
                         {fmtNum(u.audition_credits ?? 0)}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-sunset-orange" data-testid={`credits-used-${u.user_id}`}>
-                        {fmtNum(u.total_credits_used || 0)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-white" data-testid={`audio-mins-${u.user_id}`}>
-                        {((u.total_audio_seconds || 0) / 60).toFixed(1)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-white" data-testid={`gen-count-${u.user_id}`}>
-                        {u.total_generations || 0}
+                      <td className="px-4 py-3 text-right font-mono text-xs text-white">
+                        {u.stories_count || 0}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-xs text-white">
-                        {(u.storage_used_mb ?? 0).toFixed(1)} MB
+                        {u.episodes_count || 0}
                       </td>
                       <td className="px-4 py-3">
                         {u.role !== 'admin' && (
@@ -234,7 +266,7 @@ function CreatorManagement() {
                             <Button variant="ghost" size="sm" className="text-neon-cyan hover:text-neon-cyan/80 text-xs h-7 px-2"
                               onClick={() => { setLimitDialog({ open: true, user: u }); setLimitAmount(''); setAuditionAmount(''); setLimitReason(''); }}
                               data-testid={`adjust-limits-${u.user_id}`}>
-                              Limits
+                              Credits
                             </Button>
                             {(u.status || 'active') === 'active' ? (
                               <Button variant="ghost" size="sm" className="text-warm-gold hover:text-warm-gold/80 text-xs h-7 px-2"
@@ -263,16 +295,44 @@ function CreatorManagement() {
       <Dialog open={limitDialog.open} onOpenChange={(open) => setLimitDialog({ open, user: open ? limitDialog.user : null })}>
         <DialogContent className="bg-charcoal border-white/10 text-white sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-syne">Adjust Limits — {limitDialog.user?.name || limitDialog.user?.email}</DialogTitle>
+            <DialogTitle className="font-syne">Adjust Credits — {limitDialog.user?.name || limitDialog.user?.email}</DialogTitle>
           </DialogHeader>
+
+          {/* Audio Access Toggle */}
+          <div className="flex items-center justify-between p-3 bg-slate/50 border border-white/5 rounded-sm mt-2">
+            <div>
+              <p className="text-white text-sm font-medium">Audio Access</p>
+              <p className="text-text-secondary text-xs">Master switch for all audio features</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs ${limitDialog.user?.generation_status === 'active' ? 'text-signal-green' : 'text-red-400'}`}>
+                {limitDialog.user?.generation_status === 'active' ? 'Enabled' : 'Disabled'}
+              </span>
+              <Switch
+                checked={limitDialog.user?.generation_status === 'active'}
+                onCheckedChange={() => {
+                  toggleAudioAccess(limitDialog.user?.user_id, limitDialog.user?.generation_status);
+                  setLimitDialog(prev => ({
+                    ...prev,
+                    user: prev.user ? {
+                      ...prev.user,
+                      generation_status: prev.user.generation_status === 'active' ? 'inactive' : 'active'
+                    } : null
+                  }));
+                }}
+                data-testid="dialog-audio-toggle"
+              />
+            </div>
+          </div>
+
           <form onSubmit={adjustLimits} className="space-y-4 mt-2">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-text-secondary text-xs mb-1">Generation Credits</p>
+                <p className="text-text-secondary text-xs mb-1">Current Gen Credits</p>
                 <p className="text-white font-mono text-sm">{limitDialog.user?.limits_remaining ?? 0}</p>
               </div>
               <div>
-                <p className="text-text-secondary text-xs mb-1">Audition Credits</p>
+                <p className="text-text-secondary text-xs mb-1">Current Aud Credits</p>
                 <p className="text-electric-purple font-mono text-sm">{limitDialog.user?.audition_credits ?? 0}</p>
               </div>
             </div>
@@ -293,7 +353,7 @@ function CreatorManagement() {
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setLimitDialog({ open: false, user: null })} className="text-text-secondary" data-testid="limit-cancel-btn">Cancel</Button>
-              <Button type="submit" className="bg-electric-purple text-white hover:bg-electric-purple/80" data-testid="limit-submit-btn">Apply</Button>
+              <Button type="submit" className="bg-electric-purple text-white hover:bg-electric-purple/80" data-testid="limit-submit-btn">Apply Credits</Button>
             </div>
           </form>
         </DialogContent>
@@ -312,7 +372,6 @@ function CreatorManagement() {
             <div className="py-8 text-center text-text-secondary">Loading usage data...</div>
           ) : usageDetail?.data ? (
             <div className="space-y-5 mt-2">
-              {/* Summary Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-slate/50 border border-white/5 rounded-sm p-3">
                   <div className="flex items-center gap-1.5 mb-1"><Zap className="w-3 h-3 text-sunset-orange" /><span className="text-text-secondary text-xs">Credits Used</span></div>
@@ -332,14 +391,12 @@ function CreatorManagement() {
                 </div>
               </div>
 
-              {/* Generation Stats */}
               <div className="flex gap-4 text-xs">
                 <span className="text-text-secondary">Total Generations: <span className="text-white font-mono" data-testid="detail-total-gens">{usageDetail.data.total_generations}</span></span>
                 <span className="text-text-secondary">Failed: <span className="text-red-400 font-mono">{usageDetail.data.total_failed_generations}</span></span>
                 <span className="text-text-secondary">File Size: <span className="text-white font-mono">{fmtBytes(usageDetail.data.total_file_size_bytes)}</span></span>
               </div>
 
-              {/* By Type */}
               {usageDetail.data.by_type?.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-white mb-2">By Type</h3>
@@ -354,7 +411,6 @@ function CreatorManagement() {
                 </div>
               )}
 
-              {/* Recent Generations */}
               {usageDetail.data.recent_generations?.length > 0 && (
                 <div>
                   <h3 className="text-sm font-medium text-white mb-2">Recent Generations</h3>

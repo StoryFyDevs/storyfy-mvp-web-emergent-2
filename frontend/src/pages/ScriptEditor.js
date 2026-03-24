@@ -13,6 +13,13 @@ import { toast } from 'sonner';
 
 const base = process.env.REACT_APP_BACKEND_URL;
 
+const ERROR_MESSAGES = {
+  audio_access_disabled: 'Audio access is currently disabled. Please wait for approval or contact support.',
+  insufficient_generation_credits: 'You have no generation credits remaining.',
+  insufficient_audition_credits: 'You have no audition credits remaining.',
+};
+const friendlyError = (detail) => ERROR_MESSAGES[detail] || detail;
+
 function ScriptEditor() {
   const { storyId } = useParams();
   const { story } = useOutletContext();
@@ -41,9 +48,27 @@ function ScriptEditor() {
   // Per-dialogue regeneration loading (Set of indices)
   const [regenLoading, setRegenLoading] = useState(new Set());
 
+  // Audio access status
+  const [audioAccess, setAudioAccess] = useState({ status: 'loading', generation_credits: 0, audition_credits: 0, generation_status: 'inactive' });
+
   const authHeaders = {
     'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
   };
+
+  const audioDisabled = audioAccess.generation_status !== 'active';
+
+  useEffect(() => {
+    // Fetch audio access status
+    fetch(`${base}/api/generation/status`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(data => setAudioAccess({
+        status: data.status || 'inactive',
+        generation_credits: data.generation_credits || 0,
+        audition_credits: data.audition_credits || 0,
+        generation_status: data.generation_status || data.status || 'inactive',
+      }))
+      .catch(() => setAudioAccess(prev => ({ ...prev, status: 'error' })));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedEpisode && characters.length > 0) {
@@ -259,7 +284,7 @@ function ScriptEditor() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Generation failed');
+        throw new Error(friendlyError(err.detail) || 'Generation failed');
       }
 
       const data = await res.json();
@@ -443,7 +468,7 @@ function ScriptEditor() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const detail = err.detail;
-        const errorMsg = typeof detail === 'object' ? (detail.error || JSON.stringify(detail)) : (detail || `Server error ${res.status}`);
+        const errorMsg = typeof detail === 'object' ? (detail.error || JSON.stringify(detail)) : (friendlyError(detail) || `Server error ${res.status}`);
         throw new Error(errorMsg);
       }
 
@@ -708,8 +733,8 @@ function ScriptEditor() {
                 </Button>
                 <Button
                   onClick={handleGenerate}
-                  disabled={generating || dialogues.filter(d => d.character_id && d.text.trim()).length === 0}
-                  className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90"
+                  disabled={audioDisabled || generating || dialogues.filter(d => d.character_id && d.text.trim()).length === 0}
+                  className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 disabled:opacity-40 disabled:cursor-not-allowed"
                   data-testid="generate-audio-button"
                 >
                   {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
@@ -717,6 +742,14 @@ function ScriptEditor() {
                 </Button>
               </div>
             </div>
+
+            {/* Audio Access Disabled Warning */}
+            {audioDisabled && (
+              <div className="bg-red-500/10 border-b border-red-500/30 px-6 py-3 flex items-center gap-2" data-testid="audio-disabled-banner">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                <span className="text-red-300 text-sm">Audio access is currently disabled. Please wait for approval or contact support.</span>
+              </div>
+            )}
 
             {/* Generation Progress Bar */}
             {generating && (
@@ -750,7 +783,8 @@ function ScriptEditor() {
                 <Button
                   onClick={handleGenerate}
                   size="sm"
-                  className="bg-amber-500 text-obsidian hover:bg-amber-400 text-xs"
+                  disabled={audioDisabled}
+                  className="bg-amber-500 text-obsidian hover:bg-amber-400 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
                   data-testid="regenerate-voice-button"
                 >
                   <Sparkles className="w-3 h-3 mr-1" /> Regenerate
@@ -781,6 +815,7 @@ function ScriptEditor() {
                       isGenerating={generating}
                       regenLoading={regenLoading.has(idx)}
                       needsRegeneration={needsRegeneration}
+                      audioDisabled={audioDisabled}
                     />
                   );
                 })}
@@ -811,7 +846,7 @@ function ScriptEditor() {
 
 // ========== DIALOGUE BLOCK COMPONENT ==========
 
-function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove, onAdd, onMove, onRegenerate, totalCount, isGenerating, regenLoading, needsRegeneration }) {
+function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove, onAdd, onMove, onRegenerate, totalCount, isGenerating, regenLoading, needsRegeneration, audioDisabled }) {
   const [expanded, setExpanded] = useState(true);
   const selectedChar = characters.find(c => c.character_id === dialogue.character_id);
 
@@ -926,7 +961,7 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
             <DropdownMenuContent align="end" className="bg-charcoal border-white/10 text-white text-sm min-w-[160px]">
               <DropdownMenuItem
                 className="flex items-center gap-2 cursor-pointer hover:bg-white/5 focus:bg-white/5 text-white"
-                disabled={isGenerating || regenLoading || !dialogue.character_id || !dialogue.text?.trim()}
+                disabled={audioDisabled || isGenerating || regenLoading || !dialogue.character_id || !dialogue.text?.trim()}
                 onSelect={() => onRegenerate(index)}
                 data-testid={`regenerate-dialogue-${index}`}
               >

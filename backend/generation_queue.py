@@ -114,11 +114,11 @@ async def get_creator_limits(user_id: str) -> Dict[str, Any]:
             return {"allowed": False, "reason": "User not found"}
         
         # Check generation status
-        status = user.get("generation_status", "active")
+        status = user.get("generation_status", "inactive")
         if status != "active":
             return {
                 "allowed": False,
-                "reason": "Audio generation is currently unavailable for your account.",
+                "reason": "audio_access_disabled",
                 "status": status
             }
         
