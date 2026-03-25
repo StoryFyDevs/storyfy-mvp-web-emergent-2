@@ -606,6 +606,68 @@ async def get_project_state(episode_id: str, authorization: Optional[str] = Head
     return ps or {}
 
 
+# ============ EPISODE CLIPS (Source-of-Truth for Audio Studio) ============
+
+@creator_router.get("/episodes/{episode_id}/clips")
+async def get_episode_clips(episode_id: str, authorization: Optional[str] = Header(None)):
+    """Return all active audio clips for an episode, sorted by dialogue_index.
+    This is the single source of truth for Audio Studio clip loading."""
+    profile = await _auth(authorization)
+
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    # Fetch all active clips sorted by dialogue_index
+    clips = await ndb.find_many(
+        "audio_clips",
+        {"episode_id": episode_id, "is_active": True},
+        order_by={"dialogue_index": "asc"},
+        limit=500,
+    )
+
+    if not clips:
+        return {"clips": [], "episode_id": episode_id}
+
+    # Enrich with duration from audio_cache
+    cache_keys = list(set(c.get("cache_key", "") for c in clips if c.get("cache_key")))
+    cache_map = {}
+    if cache_keys:
+        for ck in cache_keys:
+            entry = await ndb.find_one("audio_cache", {"cache_key": ck})
+            if entry:
+                cache_map[ck] = entry
+
+    # Fetch characters from story for name mapping
+    story_id = ep.get("story_id", "")
+    characters = []
+    if story_id:
+        characters = await ndb.find_many("characters", {"story_id": story_id}, limit=100)
+    voice_to_char = {c.get("voice_id", ""): c.get("name", "") for c in characters}
+
+    result_clips = []
+    for clip in clips:
+        ck = clip.get("cache_key", "")
+        cache_entry = cache_map.get(ck, {})
+        voice_id = clip.get("voice_id", "")
+        char_name = voice_to_char.get(voice_id, "")
+
+        result_clips.append({
+            "clip_id": clip.get("file_id", ""),
+            "dialogue_index": clip.get("dialogue_index", 0),
+            "audio_url": clip.get("audio_url", ""),
+            "voice_id": voice_id,
+            "version_hash": ck,
+            "duration_seconds": cache_entry.get("duration_seconds", 0),
+            "character_name": char_name,
+            "dialogue_text": cache_entry.get("dialogue_text", ""),
+            "created_at": str(clip.get("created_at", "")),
+        })
+
+    logger.info(f"CLIPS_LOADED episode={episode_id} count={len(result_clips)}")
+    return {"clips": result_clips, "episode_id": episode_id}
+
+
 # ============ CHARACTERS ============
 
 @creator_router.post("/characters")
@@ -1461,3 +1523,144 @@ async def get_job_status(job_id: str, authorization: Optional[str] = Header(None
         raise HTTPException(status_code=404, detail="Job not found")
 
     return status
+
+
+
+# ============ PLATFORM SETTINGS (PUBLIC) ============
+
+@creator_router.get("/settings/dialogue-mode")
+async def get_dialogue_mode_public(authorization: Optional[str] = Header(None)):
+    """Check if dialogue mode is enabled (public endpoint for creators)."""
+    await _auth(authorization)
+    setting = await ndb.find_one("voice_settings", {"setting_id": "dialogue_mode"})
+    enabled = setting.get("active_provider", "false") == "true" if setting else False
+    return {"enabled": enabled}
+
+
+# ============ SCRIPT DATA (MODE-AWARE) ============
+
+@creator_router.post("/script/{episode_id}/script-data")
+async def save_script_data(episode_id: str, body: Dict[str, Any], authorization: Optional[str] = Header(None)):
+    """Save script data in either narration or dialogue format."""
+    profile = await _auth(authorization)
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    import json as _json
+    await ndb.update_rows("episodes", {"episode_id": episode_id}, {
+        "script_content": _json.dumps(body),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"message": "Script data saved", "mode": body.get("mode", "dialogue")}
+
+
+@creator_router.get("/script/{episode_id}/script-data")
+async def get_script_data(episode_id: str, authorization: Optional[str] = Header(None)):
+    """Get script data with mode detection."""
+    profile = await _auth(authorization)
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    import json as _json
+    raw = ep.get("script_content", "")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            data = _json.loads(raw)
+            # New format: has explicit mode key
+            if isinstance(data, dict) and "mode" in data:
+                return data
+            # Legacy format: plain array of dialogues
+            if isinstance(data, list) and len(data) > 0:
+                return {"mode": "dialogue", "dialogues": data, "parts": [], "voice_id": ""}
+            # Empty dict or unknown
+            if isinstance(data, dict):
+                return {"mode": "narration", "parts": [{"part_number": 1, "text": "", "director_notes": ""}], "dialogues": [], "voice_id": ""}
+        except _json.JSONDecodeError:
+            pass
+    # Default: empty narration
+    return {"mode": "narration", "parts": [{"part_number": 1, "text": "", "director_notes": ""}], "dialogues": [], "voice_id": ""}
+
+
+# ============ NARRATION GENERATION ============
+
+class NarrationPart(_BaseModel):
+    part_number: int
+    text: str
+    director_notes: Optional[str] = ""
+
+class NarrationGenerateRequest(_BaseModel):
+    voice_id: str
+    parts: List[NarrationPart]
+
+NARRATION_CHAR_LIMIT = 15000
+
+@creator_router.post("/script/{episode_id}/narration/generate")
+async def generate_narration_audio(episode_id: str, body: NarrationGenerateRequest, authorization: Optional[str] = Header(None)):
+    """Generate audio for narration mode parts. Each part = 1 Gemini TTS call."""
+    profile = await _auth(authorization)
+    user_id = profile["user_id"]
+
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    if ep.get("is_published"):
+        raise HTTPException(status_code=423, detail="Episode is published and locked.")
+
+    if not body.parts:
+        raise HTTPException(status_code=400, detail="No parts to generate")
+    if not body.voice_id:
+        raise HTTPException(status_code=400, detail="voice_id is required")
+
+    # Validate character limits per part
+    for part in body.parts:
+        total_chars = len(part.text) + len(part.director_notes or "")
+        if total_chars > NARRATION_CHAR_LIMIT:
+            raise HTTPException(status_code=422, detail="content_too_long")
+        if not part.text.strip():
+            raise HTTPException(status_code=400, detail=f"Part {part.part_number} has no text")
+
+    # Check generation access
+    creator_limits = await gq.get_creator_limits(user_id)
+    if not creator_limits.get("allowed"):
+        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "audio_access_disabled"))
+
+    # Convert narration parts to dialogue format for the existing pipeline
+    voice_map = {"Narrator": body.voice_id}
+    dialogues_data = []
+    for part in body.parts:
+        dialogues_data.append({
+            "index": part.part_number - 1,
+            "dialogue_index": part.part_number - 1,
+            "character_id": "",
+            "character_name": "Narrator",
+            "text": part.text,
+            "director_notes": part.director_notes or "",
+        })
+
+    # Create job
+    job_id = f"narjob_{uuid.uuid4().hex[:12]}"
+    await ndb.insert_one("script_generation_jobs", {
+        "job_id": job_id,
+        "episode_id": episode_id,
+        "user_id": user_id,
+        "status": "pending",
+        "total_dialogues": len(dialogues_data),
+        "completed_dialogues": 0,
+        "batches_total": 0,
+        "batches_completed": 0,
+        "result_data": "{}",
+        "error_message": "",
+    })
+
+    # Start background generation
+    story_id = ep.get("story_id", "")
+    asyncio.create_task(sc.run_generation_job(job_id, episode_id, user_id, dialogues_data, voice_map, story_id=story_id))
+
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "total_parts": len(body.parts),
+        "total_dialogues": len(dialogues_data),
+    }

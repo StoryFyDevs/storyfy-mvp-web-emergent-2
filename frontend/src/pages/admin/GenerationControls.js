@@ -35,15 +35,20 @@ function GenerationControls() {
   const [creators, setCreators] = useState([]);
   const [updatingCreator, setUpdatingCreator] = useState(null);
   
+  // Dialogue mode toggle
+  const [dialogueModeEnabled, setDialogueModeEnabled] = useState(false);
+  const [dialogueModeLoading, setDialogueModeLoading] = useState(false);
+  
   const token = localStorage.getItem('admin_token');
   const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const fetchData = useCallback(async () => {
     try {
-      const [limitsRes, analyticsRes, creatorsRes] = await Promise.all([
+      const [limitsRes, analyticsRes, creatorsRes, dialogueModeRes] = await Promise.all([
         fetch(`${base}/api/admin-9821/generation/limits`, { headers }),
         fetch(`${base}/api/admin-9821/generation/analytics`, { headers }),
-        fetch(`${base}/api/admin-9821/generation/creators`, { headers })
+        fetch(`${base}/api/admin-9821/generation/creators`, { headers }),
+        fetch(`${base}/api/admin-9821/settings/dialogue-mode`, { headers })
       ]);
       
       if (limitsRes.ok) {
@@ -59,6 +64,11 @@ function GenerationControls() {
       if (creatorsRes.ok) {
         const data = await creatorsRes.json();
         setCreators(data.creators || []);
+      }
+      
+      if (dialogueModeRes.ok) {
+        const data = await dialogueModeRes.json();
+        setDialogueModeEnabled(data.enabled === true);
       }
     } catch (err) {
       toast.error('Failed to load generation controls');
@@ -149,6 +159,28 @@ function GenerationControls() {
     }
   };
 
+  const toggleDialogueMode = async () => {
+    setDialogueModeLoading(true);
+    try {
+      const res = await fetch(`${base}/api/admin-9821/settings/dialogue-mode`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ enabled: !dialogueModeEnabled })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDialogueModeEnabled(data.enabled);
+        toast.success(data.enabled ? 'Dialogue mode enabled' : 'Dialogue mode disabled');
+      } else {
+        toast.error('Failed to update dialogue mode');
+      }
+    } catch {
+      toast.error('Failed to update dialogue mode');
+    } finally {
+      setDialogueModeLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-obsidian flex items-center justify-center">
@@ -225,6 +257,33 @@ function GenerationControls() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Platform Settings */}
+          <div className="bg-charcoal border border-white/10 rounded-lg p-6 lg:col-span-2 mb-2">
+            <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
+              <Settings className="w-5 h-5 text-electric-purple" />
+              Platform Feature Toggles
+            </h2>
+            <div className="flex items-center justify-between py-3">
+              <div>
+                <div className="text-white font-medium">Dialogue Mode (Advanced)</div>
+                <p className="text-text-secondary text-xs mt-1">
+                  When enabled, creators can use multi-character dialogue mode in the Script Editor. Disabled by default to conserve Gemini API credits.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs font-mono ${dialogueModeEnabled ? 'text-green-400' : 'text-red-400'}`}>
+                  {dialogueModeEnabled ? 'ENABLED' : 'DISABLED'}
+                </span>
+                <Switch
+                  checked={dialogueModeEnabled}
+                  onCheckedChange={toggleDialogueMode}
+                  disabled={dialogueModeLoading}
+                  data-testid="dialogue-mode-toggle"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* System Limits */}
           <div className="bg-charcoal border border-white/10 rounded-lg p-6">
             <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">

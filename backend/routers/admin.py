@@ -1417,3 +1417,45 @@ async def admin_list_clips(
     clips = await ndb.find_many("audio_clips", where if where else None, limit=limit,
                                 order_by={"created_at": "desc"})
     return {"clips": clips, "count": len(clips)}
+
+
+
+# ============ PLATFORM SETTINGS ============
+
+@admin_router.get("/settings/dialogue-mode")
+async def get_dialogue_mode_setting(authorization: Optional[str] = Header(None)):
+    """Get dialogue mode enabled status."""
+    await _auth_admin(authorization)
+    setting = await ndb.find_one("voice_settings", {"setting_id": "dialogue_mode"})
+    enabled = setting.get("active_provider", "false") == "true" if setting else False
+    return {"enabled": enabled}
+
+
+@admin_router.post("/settings/dialogue-mode")
+async def set_dialogue_mode_setting(body: Dict, authorization: Optional[str] = Header(None)):
+    """Toggle dialogue mode globally."""
+    admin = await _auth_admin(authorization)
+    enabled = bool(body.get("enabled", False))
+
+    existing = await ndb.find_one("voice_settings", {"setting_id": "dialogue_mode"})
+    value = "true" if enabled else "false"
+    if existing:
+        await ndb.update_rows("voice_settings", {"setting_id": "dialogue_mode"}, {
+            "active_provider": value,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+    else:
+        await ndb.insert_one("voice_settings", {
+            "setting_id": "dialogue_mode",
+            "active_provider": value
+        })
+
+    await _log_admin_action({
+        "admin_id": admin["user_id"],
+        "action": "toggle_dialogue_mode",
+        "target_type": "system",
+        "target_id": "dialogue_mode",
+        "details": json.dumps({"enabled": enabled}),
+    })
+
+    return {"enabled": enabled, "message": f"Dialogue mode {'enabled' if enabled else 'disabled'}"}

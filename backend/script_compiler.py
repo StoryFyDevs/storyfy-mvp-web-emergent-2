@@ -943,6 +943,8 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                 }
                 cache_hits += 1
                 await _update_progress(job_id, len(results), len(dialogues))
+                # Register in audio_clips (will skip if same version_hash exists)
+                await register_clip(episode_id, story_id, idx, voice_id, ck, cached["audio_url"])
             else:
                 d["cache_key"] = ck
                 to_generate.append(d)
@@ -999,6 +1001,12 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                             d_match.get("director_notes", ""),
                             r["audio_url"], r["duration_seconds"]
                         )
+                        # Register clip in audio_clips table
+                        await register_clip(
+                            episode_id, story_id, idx,
+                            voice_map.get(r.get("character_name", ""), "Kore"),
+                            d_match["cache_key"], r["audio_url"]
+                        )
 
                 await _update_progress(job_id, len(results), len(dialogues))
 
@@ -1007,6 +1015,10 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                 await asyncio.sleep(2)
 
         # ── Step 4: Finalize ──
+        # Deactivate clips for dialogues that no longer exist in the script
+        active_indices = [int(k) for k in results.keys()]
+        await deactivate_removed_clips(episode_id, active_indices)
+
         await _finish_job(job_id, results, len(dialogues))
         gen_time = time.time() - start_time
         gemini_batch_calls = sum(1 for b in char_batches if len(b["dialogues"]) > 1)
@@ -1097,6 +1109,11 @@ async def regenerate_single_dialogue(
         store_cache(cache_key, voice_id, text, notes, result["audio_url"], result["duration_seconds"])
     )
 
+    # Register clip in audio_clips table (marks old clip inactive, creates new active one)
+    dialogue_index = dialogue.get("dialogue_index", dialogue.get("index", 0))
+    await register_clip(episode_id, story_id, dialogue_index, voice_id, cache_key, result["audio_url"])
+    logger.info(f"CLIP_REPLACED episode={episode_id} dialogue_index={dialogue_index}")
+
     await gq.record_generation(user_id, success=True, tokens_used=len(text))
     return result
 
@@ -1116,3 +1133,72 @@ async def _finish_job(job_id: str, results: Dict, total: int):
         "result_data": json.dumps(serializable),
         "updated_at": datetime.now(timezone.utc).isoformat()
     })
+
+
+# ──────────────────────────────────────────────
+#  CLIP REGISTRATION (audio_clips table)
+# ──────────────────────────────────────────────
+
+async def register_clip(
+    episode_id: str, story_id: str, dialogue_index: int,
+    voice_id: str, cache_key: str, audio_url: str,
+):
+    """Register a generated clip in audio_clips table.
+
+    1. Mark any existing active clip for the same dialogue_index as inactive
+    2. Insert the new clip as active
+    """
+    # Deactivate old clips for this dialogue position
+    old_clips = await ndb.find_many("audio_clips", {
+        "episode_id": episode_id,
+        "dialogue_index": dialogue_index,
+        "is_active": True,
+    })
+    for oc in old_clips:
+        if oc.get("cache_key") == cache_key:
+            # Same version — just update last_used_at, no need to create a new row
+            logger.info(f"CACHE_HIT clip for dialogue_index={dialogue_index} (same version_hash)")
+            await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
+                "last_used_at": datetime.now(timezone.utc).isoformat(),
+            })
+            return oc.get("file_id")
+        else:
+            logger.info(f"CLIP_MARKED_INACTIVE file_id={oc.get('file_id')} dialogue_index={dialogue_index}")
+            await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
+                "is_active": False,
+                "pending_deletion": True,
+                "pending_deletion_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    # Insert new active clip
+    file_id = f"clip_{uuid.uuid4().hex[:12]}"
+    await ndb.insert_one("audio_clips", {
+        "file_id": file_id,
+        "audio_url": audio_url,
+        "episode_id": episode_id,
+        "story_id": story_id,
+        "dialogue_index": dialogue_index,
+        "voice_id": voice_id,
+        "cache_key": cache_key,
+        "is_cached": True,
+        "is_active": True,
+    })
+    logger.info(f"CLIP_CREATED file_id={file_id} episode={episode_id} dialogue_index={dialogue_index}")
+    return file_id
+
+
+async def deactivate_removed_clips(episode_id: str, active_indices: list):
+    """Mark clips inactive if their dialogue_index is no longer in the script."""
+    all_active = await ndb.find_many("audio_clips", {
+        "episode_id": episode_id, "is_active": True
+    })
+    for clip in all_active:
+        idx = clip.get("dialogue_index")
+        if idx is not None and idx not in active_indices:
+            logger.info(f"CLIP_MARKED_INACTIVE (deleted dialogue) file_id={clip.get('file_id')} idx={idx}")
+            await ndb.update_rows("audio_clips", {"file_id": clip["file_id"]}, {
+                "is_active": False,
+                "pending_deletion": True,
+                "pending_deletion_at": datetime.now(timezone.utc).isoformat(),
+            })
+

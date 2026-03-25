@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
 import { useStudio } from '../contexts/StudioContext';
 import { Button } from '../components/ui/button';
@@ -7,16 +7,22 @@ import { Textarea } from '../components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Label } from '../components/ui/label';
-import { Plus, Save, FileText, Globe, FileEdit, Trash2, GripVertical, Play, Loader2, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Sparkles, MoreHorizontal, RefreshCw } from 'lucide-react';
+import {
+  Plus, Save, FileText, Globe, FileEdit, Trash2, GripVertical,
+  Loader2, AlertCircle, ChevronDown, ChevronUp, Sparkles,
+  MoreHorizontal, RefreshCw, BookOpen, MessageSquare, Lock, Info
+} from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
 const base = process.env.REACT_APP_BACKEND_URL;
+const NARRATION_CHAR_LIMIT = 15000;
 
 const ERROR_MESSAGES = {
   audio_access_disabled: 'Audio generation access is currently disabled. Please wait for approval or contact support.',
   insufficient_generation_credits: 'You have no generation credits remaining.',
   insufficient_audition_credits: 'You have no audition credits remaining.',
+  content_too_long: 'This section is too long to generate audio. Please break it into smaller parts or reduce your text.',
 };
 const friendlyError = (detail) => ERROR_MESSAGES[detail] || detail;
 
@@ -25,14 +31,26 @@ function ScriptEditor() {
   const { story } = useOutletContext();
   const {
     episodes, refreshEpisodes,
-    characters,
-    voices,
+    characters, voices,
     selectedEpisode, setSelectedEpisode,
     requestEpisodeSwitch,
     setIsProjectDirty,
     registerSaveCallback,
   } = useStudio();
+
+  // ===== MODE STATE =====
+  const [mode, setMode] = useState('narration');
+  const [dialogueModeEnabled, setDialogueModeEnabled] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
+
+  // ===== NARRATION STATE =====
+  const [narrationParts, setNarrationParts] = useState([{ part_number: 1, text: '', director_notes: '' }]);
+  const [narrationVoiceId, setNarrationVoiceId] = useState('');
+
+  // ===== DIALOGUE STATE (existing) =====
   const [dialogues, setDialogues] = useState([]);
+
+  // ===== COMMON STATE =====
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newEpisode, setNewEpisode] = useState({ title: '', order: 1 });
   const [publishingEp, setPublishingEp] = useState(null);
@@ -41,24 +59,20 @@ function ScriptEditor() {
 
   // Generation state
   const [generating, setGenerating] = useState(false);
-  const [genJobId, setGenJobId] = useState(null);
   const [genProgress, setGenProgress] = useState({ completed: 0, total: 0, status: '' });
   const pollRef = useRef(null);
 
-  // Per-dialogue regeneration loading (Set of indices)
+  // Per-dialogue regeneration
   const [regenLoading, setRegenLoading] = useState(new Set());
 
-  // Audio access status
-  const [audioAccess, setAudioAccess] = useState({ status: 'loading', generation_credits: 0, audition_credits: 0, generation_status: 'inactive' });
+  // Audio access
+  const [audioAccess, setAudioAccess] = useState({ status: 'loading', generation_status: 'inactive' });
 
-  const authHeaders = {
-    'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-  };
-
+  const authHeaders = { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` };
   const audioDisabled = audioAccess.generation_status !== 'active';
 
+  // ===== FETCH SETTINGS ON MOUNT =====
   useEffect(() => {
-    // Fetch audio access status
     fetch(`${base}/api/generation/status`, { headers: authHeaders })
       .then(r => r.json())
       .then(data => setAudioAccess({
@@ -68,144 +82,188 @@ function ScriptEditor() {
         generation_status: data.generation_status || data.status || 'inactive',
       }))
       .catch(() => setAudioAccess(prev => ({ ...prev, status: 'error' })));
+
+    fetch(`${base}/api/settings/dialogue-mode`, { headers: authHeaders })
+      .then(r => r.json())
+      .then(data => setDialogueModeEnabled(data.enabled === true))
+      .catch(() => setDialogueModeEnabled(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ===== LOAD SCRIPT DATA WHEN EPISODE CHANGES =====
   useEffect(() => {
-    if (selectedEpisode && characters.length > 0) {
-      loadDialogues(selectedEpisode.episode_id);
+    if (selectedEpisode) {
+      loadScriptData(selectedEpisode.episode_id);
     }
-  }, [selectedEpisode?.episode_id, characters]);
+  }, [selectedEpisode?.episode_id, characters.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cleanup polling on unmount
   useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  const getVoiceName = (voiceId) => {
-    if (!voiceId) return '';
-    const v = voices.find(x => x.voice_id === voiceId);
-    return v ? v.name : voiceId;
-  };
-
-  const loadDialogues = async (episodeId) => {
+  const loadScriptData = async (episodeId) => {
     try {
-      const res = await fetch(`${base}/api/script/${episodeId}/dialogues`, {
-        headers: authHeaders
-      });
+      const res = await fetch(`${base}/api/script/${episodeId}/script-data`, { headers: authHeaders });
       if (!res.ok) throw new Error('Failed to load script');
       const data = await res.json();
-      if (data.dialogues && data.dialogues.length > 0) {
-        // Resolve current voice_id from characters for each dialogue
-        const resolved = data.dialogues.map(d => {
-          const char = characters.find(c => c.character_id === d.character_id);
-          return {
-            ...d,
-            // Always resolve voice_id from the character's CURRENT voice
-            voice_id: char ? (char.voice_id || '') : (d.voice_id || ''),
-            // Preserve the generated_voice_id snapshot from saved data
-            generated_voice_id: d.generated_voice_id || '',
-          };
-        });
-        setDialogues(resolved);
+
+      if (data.mode === 'narration') {
+        setMode('narration');
+        const parts = data.parts && data.parts.length > 0
+          ? data.parts
+          : [{ part_number: 1, text: '', director_notes: '' }];
+        setNarrationParts(parts);
+        setNarrationVoiceId(data.voice_id || '');
+        // Also load any preserved dialogue data
+        if (data.dialogues && data.dialogues.length > 0) {
+          const resolved = resolveDialogueVoices(data.dialogues);
+          setDialogues(resolved);
+        } else {
+          setDialogues([createEmptyDialogue(0)]);
+        }
+      } else if (data.mode === 'dialogue') {
+        setMode('dialogue');
+        if (data.dialogues && data.dialogues.length > 0) {
+          const resolved = resolveDialogueVoices(data.dialogues);
+          setDialogues(resolved);
+        } else {
+          setDialogues([createEmptyDialogue(0)]);
+        }
+        // Load preserved narration data
+        if (data.parts && data.parts.length > 0) {
+          setNarrationParts(data.parts);
+        }
+        if (data.voice_id) setNarrationVoiceId(data.voice_id);
       } else {
+        // Default to narration for fresh episodes
+        setMode('narration');
+        setNarrationParts([{ part_number: 1, text: '', director_notes: '' }]);
         setDialogues([createEmptyDialogue(0)]);
       }
       setDirty(false);
-    } catch (error) {
+    } catch {
+      setMode('narration');
+      setNarrationParts([{ part_number: 1, text: '', director_notes: '' }]);
       setDialogues([createEmptyDialogue(0)]);
+      setDirty(false);
     }
+  };
+
+  const resolveDialogueVoices = (dlgs) => {
+    return dlgs.map(d => {
+      const char = characters.find(c => c.character_id === d.character_id);
+      return {
+        ...d,
+        voice_id: char ? (char.voice_id || '') : (d.voice_id || ''),
+        generated_voice_id: d.generated_voice_id || '',
+      };
+    });
   };
 
   const createEmptyDialogue = (index) => ({
-    index,
-    character_id: '',
-    character_name: '',
-    voice_id: '',
-    text: '',
-    director_notes: '',
-    generated_voice_id: '',
+    index, character_id: '', character_name: '', voice_id: '',
+    text: '', director_notes: '', generated_voice_id: '',
   });
 
-  const handleCreateEpisode = async (e) => {
-    e.preventDefault();
-    try {
-      const response = await fetch(`${base}/api/episodes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ story_id: storyId, title: newEpisode.title, order: newEpisode.order, script: '' })
-      });
-      if (!response.ok) throw new Error('Failed to create episode');
-      const episode = await response.json();
-      await refreshEpisodes();
-      setSelectedEpisode(episode);
-      setDialogues([createEmptyDialogue(0)]);
-      setShowCreateDialog(false);
-      setNewEpisode({ title: '', order: episodes.length + 1 });
-      toast.success('Episode created!');
-    } catch (error) {
-      toast.error('Failed to create episode');
-    }
-  };
-
-  const handleSaveScript = useCallback(async () => {
+  // ===== SAVE (MODE-AWARE) =====
+  const handleSave = useCallback(async () => {
     if (!selectedEpisode) return;
     setSaving(true);
     try {
-      const indexed = dialogues.map((d, i) => ({ ...d, index: i }));
-      const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogues`, {
+      const payload = {
+        mode,
+        voice_id: narrationVoiceId,
+        parts: narrationParts,
+        dialogues: dialogues.map((d, i) => ({ ...d, index: i })),
+      };
+      const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/script-data`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ dialogues: indexed })
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Failed to save script');
-      setDialogues(indexed);
+      if (!res.ok) throw new Error('Failed to save');
       setDirty(false);
       toast.success('Script saved!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to save script');
     } finally {
       setSaving(false);
     }
-  }, [selectedEpisode, dialogues, base]);
+  }, [selectedEpisode, mode, narrationParts, narrationVoiceId, dialogues]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync local dirty state to global context
+  useEffect(() => { setIsProjectDirty(dirty); }, [dirty, setIsProjectDirty]);
   useEffect(() => {
-    setIsProjectDirty(dirty);
-  }, [dirty, setIsProjectDirty]);
-
-  // Register handleSaveScript as the save callback for the unsaved changes modal
-  useEffect(() => {
-    registerSaveCallback(handleSaveScript);
+    registerSaveCallback(handleSave);
     return () => registerSaveCallback(null);
-  }, [registerSaveCallback, handleSaveScript]);
+  }, [registerSaveCallback, handleSave]);
 
-  // Browser refresh/close guard
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    const handler = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
-  // ========== DIALOGUE MANAGEMENT ==========
+  // ===== NARRATION PART MANAGEMENT =====
+  const updateNarrationPart = (index, field, value) => {
+    setNarrationParts(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p));
+    setDirty(true);
+  };
 
+  const addNarrationPart = () => {
+    setNarrationParts(prev => [...prev, { part_number: prev.length + 1, text: '', director_notes: '' }]);
+    setDirty(true);
+  };
+
+  const removeNarrationPart = (index) => {
+    if (narrationParts.length <= 1) { toast.error('Cannot remove the only part'); return; }
+    setNarrationParts(prev => prev.filter((_, i) => i !== index).map((p, i) => ({ ...p, part_number: i + 1 })));
+    setDirty(true);
+  };
+
+  const getPartCharCount = (part) => (part.text?.length || 0) + (part.director_notes?.length || 0);
+
+  // ===== NARRATION GENERATION =====
+  const handleGenerateNarration = async () => {
+    if (!selectedEpisode) return;
+    if (!narrationVoiceId) { toast.error('Please select a narrator voice'); return; }
+    const validParts = narrationParts.filter(p => p.text.trim());
+    if (validParts.length === 0) { toast.error('Add some narration text before generating'); return; }
+    const overLimit = validParts.find(p => getPartCharCount(p) > NARRATION_CHAR_LIMIT);
+    if (overLimit) {
+      toast.error(`Part ${overLimit.part_number} exceeds the ${NARRATION_CHAR_LIMIT.toLocaleString()} character limit`);
+      return;
+    }
+
+    await handleSave();
+    setGenerating(true);
+    setGenProgress({ completed: 0, total: validParts.length, status: 'Starting...' });
+
+    try {
+      const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/narration/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ voice_id: narrationVoiceId, parts: validParts }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(friendlyError(err.detail) || 'Generation failed');
+      }
+      const data = await res.json();
+      setGenProgress({ completed: 0, total: data.total_dialogues || validParts.length, status: 'Generating audio...' });
+      startPolling(data.job_id);
+    } catch (error) {
+      toast.error(error.message || 'Failed to start generation');
+      setGenerating(false);
+    }
+  };
+
+  // ===== DIALOGUE MANAGEMENT (existing) =====
   const updateDialogue = (index, field, value) => {
     setDialogues(prev => prev.map((d, i) => {
       if (i !== index) return d;
       const updated = { ...d, [field]: value };
-      // Auto-fill character details when character is selected
       if (field === 'character_id') {
         const char = characters.find(c => c.character_id === value);
-        if (char) {
-          updated.character_name = char.name;
-          updated.voice_id = char.voice_id || '';
-        }
+        if (char) { updated.character_name = char.name; updated.voice_id = char.voice_id || ''; }
       }
       return updated;
     }));
@@ -223,10 +281,7 @@ function ScriptEditor() {
   };
 
   const removeDialogue = (index) => {
-    if (dialogues.length <= 1) {
-      toast.error('Cannot remove the last dialogue');
-      return;
-    }
+    if (dialogues.length <= 1) { toast.error('Cannot remove the last dialogue'); return; }
     setDialogues(prev => prev.filter((_, i) => i !== index).map((d, i) => ({ ...d, index: i })));
     setDirty(true);
   };
@@ -242,62 +297,34 @@ function ScriptEditor() {
     setDirty(true);
   };
 
-  // ========== GENERATION ==========
-
-  const handleGenerate = async () => {
+  // ===== DIALOGUE GENERATION (existing) =====
+  const handleGenerateDialogue = async () => {
     if (!selectedEpisode) return;
-
-    // Validate: all dialogues need character + text
     const valid = dialogues.filter(d => d.character_id && d.text.trim());
-    if (valid.length === 0) {
-      toast.error('Add at least one dialogue with a character and text');
-      return;
-    }
-
+    if (valid.length === 0) { toast.error('Add at least one dialogue with a character and text'); return; }
     const incomplete = dialogues.filter(d => d.text.trim() && !d.character_id);
-    if (incomplete.length > 0) {
-      toast.error('Some dialogues are missing a character assignment');
-      return;
-    }
+    if (incomplete.length > 0) { toast.error('Some dialogues are missing a character assignment'); return; }
 
-    // Save first
-    await handleSaveScript();
-
+    await handleSave();
     setGenerating(true);
     setGenProgress({ completed: 0, total: valid.length, status: 'Starting...' });
 
     try {
-      // Resolve voice_id from characters (always use current character voice)
       const indexed = valid.map((d, i) => {
         const char = characters.find(c => c.character_id === d.character_id);
-        return {
-          ...d,
-          index: i,
-          voice_id: char ? (char.voice_id || '') : (d.voice_id || ''),
-        };
+        return { ...d, index: i, voice_id: char ? (char.voice_id || '') : (d.voice_id || '') };
       });
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ dialogues: indexed })
+        body: JSON.stringify({ dialogues: indexed }),
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(friendlyError(err.detail) || 'Generation failed');
       }
-
       const data = await res.json();
-      setGenJobId(data.job_id);
       setGenProgress({ completed: 0, total: data.total_dialogues, status: 'Generating audio...' });
-
-      // Store removed clips info for later timeline cleanup (scoped to episode)
-      if (data.removed_clips && data.removed_clips.length > 0) {
-        const removedKey = `removed_clips_${storyId}_${selectedEpisode.episode_id}`;
-        localStorage.setItem(removedKey, JSON.stringify(data.removed_clips));
-      }
-
-      // Start polling
       startPolling(data.job_id);
     } catch (error) {
       toast.error(error.message || 'Failed to start generation');
@@ -305,320 +332,174 @@ function ScriptEditor() {
     }
   };
 
-  const startPolling = (jobId) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${base}/api/script/job/${jobId}/status`, {
-          headers: authHeaders
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-
-        setGenProgress({
-          completed: data.completed_dialogues,
-          total: data.total_dialogues,
-          status: data.status === 'processing' ? 'Generating audio...'
-            : data.status === 'completed' ? 'Complete!'
-            : data.status === 'completed_with_errors' ? 'Completed with some errors'
-            : data.status === 'failed' ? 'Generation failed'
-            : 'Waiting...',
-        });
-
-        if (['completed', 'completed_with_errors', 'failed'].includes(data.status)) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-          setGenerating(false);
-
-          if (data.status === 'failed') {
-            toast.error(data.error_message || 'Generation failed');
-          } else {
-            // Push clips to Audio Studio via localStorage
-            pushClipsToTimeline(data.results);
-
-            // Update generated_voice_id snapshot for each dialogue
-            updateVoiceSnapshots(data.results);
-
-            toast.success(`Audio generated! ${data.completed_dialogues} clips ready.`);
-          }
-        }
-      } catch (err) {
-        // Ignore polling errors
-      }
-    }, 2000);
-  };
-
-  const pushClipsToTimeline = (results) => {
-    if (!results || Object.keys(results).length === 0) return;
-
-    // Collect all valid clips and sort by dialogue_index for deterministic ordering
-    const allClips = [];
-    for (const [key, r] of Object.entries(results)) {
-      if (!r.audio_url || r.error) continue;
-      const dialogueIndex = r.dialogue_index !== undefined ? r.dialogue_index : parseInt(key);
-      const d = dialogues[dialogueIndex] || {};
-      const charName = r.character_name || d.character_name || 'Unknown';
-      const duration = r.duration_seconds || 3;
-      const filename = r.filename || `${charName.replace(/\s/g, '_')}_${String(dialogueIndex + 1).padStart(2, '0')}.wav`;
-
-      allClips.push({
-        dialogueIndex,
-        charName,
-        duration,
-        filename,
-        url: r.audio_url,
-        text: d.text || '',
-      });
-    }
-
-    // Sort by dialogue_index to guarantee script order
-    allClips.sort((a, b) => a.dialogueIndex - b.dialogueIndex);
-
-    // Build per-character tracks with sequential timing based on script order
-    const tracksByChar = {};
-    let globalOffset = 0;
-
-    for (const clip of allClips) {
-      if (!tracksByChar[clip.charName]) {
-        tracksByChar[clip.charName] = [];
-      }
-
-      tracksByChar[clip.charName].push({
-        id: `scrclip-${Date.now()}-${clip.dialogueIndex}`,
-        name: clip.filename.replace('.wav', ''),
-        url: clip.url,
-        duration: clip.duration,
-        characterName: clip.charName,
-        text: clip.text,
-        type: 'voice',
-        dialogueIndex: clip.dialogueIndex,
-        start: globalOffset,
-      });
-
-      globalOffset += clip.duration + 0.3;
-    }
-
-    // Convert to track array format for AudioStudio
-    const tracks = Object.entries(tracksByChar).map(([charName, clips]) => ({
-      characterName: charName,
-      clips,
-    }));
-
-    if (tracks.length > 0) {
-      const pendingKey = `pending_clips_${storyId}_${selectedEpisode.episode_id}`;
-      localStorage.setItem(pendingKey, JSON.stringify(tracks));
-    }
-  };
-
-  const updateVoiceSnapshots = (results) => {
-    if (!results) return;
-    setDialogues(prev => {
-      const updated = prev.map((d, i) => {
-        const r = results[String(i)];
-        if (r && r.generated_voice_id) {
-          return { ...d, generated_voice_id: r.generated_voice_id };
-        }
-        return d;
-      });
-      // Auto-save script with updated generated_voice_id snapshots
-      const indexed = updated.map((d, i) => ({ ...d, index: i }));
-      fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogues`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ dialogues: indexed })
-      }).catch(() => {});
-      return updated;
-    });
-  };
-
-  // ========== SINGLE-DIALOGUE REGENERATE ==========
-
+  // ===== SINGLE-DIALOGUE REGENERATION =====
   const handleRegenerateDialogue = async (index) => {
     const d = dialogues[index];
-    if (!d || !d.text?.trim()) {
-      toast.error('Dialogue has no text to regenerate');
-      return;
-    }
+    if (!d || !d.text?.trim()) { toast.error('Dialogue has no text to regenerate'); return; }
     const char = characters.find(c => c.character_id === d.character_id);
-    if (!char?.voice_id) {
-      toast.error('Assign a character with a voice before regenerating');
-      return;
-    }
+    if (!char?.voice_id) { toast.error('Assign a character with a voice before regenerating'); return; }
 
     setRegenLoading(prev => new Set([...prev, index]));
-
     try {
-      const res = await fetch(
-        `${base}/api/script/${selectedEpisode.episode_id}/dialogue/${index}/regenerate`,
-        {
-          method: 'POST',
-          
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({
-            dialogue_index: index,
-            character_id: d.character_id,
-            character_name: char.name || d.character_name || 'Unknown',
-            voice_id: char.voice_id,
-            text: d.text,
-            director_notes: d.director_notes || '',
-          }),
-        }
-      );
-
+      const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/dialogue/${index}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({
+          dialogue_index: index, character_id: d.character_id,
+          character_name: char.name || d.character_name || 'Unknown',
+          voice_id: char.voice_id, text: d.text, director_notes: d.director_notes || '',
+        }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         const detail = err.detail;
         const errorMsg = typeof detail === 'object' ? (detail.error || JSON.stringify(detail)) : (friendlyError(detail) || `Server error ${res.status}`);
         throw new Error(errorMsg);
       }
-
       const data = await res.json();
-
       if (data.status === 'queued' && data.job_id) {
-        // Poll for completion
         toast.loading(`Dialogue ${index + 1} queued for regeneration...`, { id: `regen-${index}` });
         pollRegenJob(data.job_id, index, d, char);
       } else if (data.success) {
-        // Direct response (legacy fallback)
         toast.success(`Dialogue ${index + 1} regenerated`);
-        applyRegenResult(index, data, d, char);
+        if (data.generated_voice_id) {
+          setDialogues(prev => prev.map((item, i) => i === index ? { ...item, generated_voice_id: data.generated_voice_id } : item));
+        }
+        setRegenLoading(prev => { const next = new Set(prev); next.delete(index); return next; });
       }
     } catch (err) {
       toast.dismiss(`regen-${index}`);
       toast.error(`Regeneration failed: ${err.message}`);
-      setRegenLoading(prev => {
-        const next = new Set(prev);
-        next.delete(index);
-        return next;
-      });
+      setRegenLoading(prev => { const next = new Set(prev); next.delete(index); return next; });
     }
   };
 
-  const pollRegenJob = (jobId, index, dialogue, char) => {
+  const pollRegenJob = (jobId, index) => {
     let attempts = 0;
-    const maxAttempts = 90; // 3 minutes at 2s intervals
     const interval = setInterval(async () => {
       attempts++;
       try {
         const res = await fetch(`${base}/api/jobs/${jobId}`, { headers: authHeaders });
         if (!res.ok) return;
         const data = await res.json();
-
         if (data.status === 'queued') {
           const pos = data.position_in_queue || 0;
-          toast.loading(
-            pos > 0 ? `${pos} job${pos > 1 ? 's' : ''} ahead of you...` : 'Your audio is in queue...',
-            { id: `regen-${index}` }
-          );
+          toast.loading(pos > 0 ? `${pos} job${pos > 1 ? 's' : ''} ahead...` : 'In queue...', { id: `regen-${index}` });
         } else if (data.status === 'processing') {
-          toast.loading('Processing your audio...', { id: `regen-${index}` });
+          toast.loading('Processing...', { id: `regen-${index}` });
         } else if (data.status === 'completed' && data.result) {
           clearInterval(interval);
           toast.dismiss(`regen-${index}`);
           toast.success(`Dialogue ${index + 1} regenerated`);
-          applyRegenResult(index, data.result, dialogue, char);
-          setRegenLoading(prev => {
-            const next = new Set(prev);
-            next.delete(index);
-            return next;
-          });
+          if (data.result.generated_voice_id) {
+            setDialogues(prev => prev.map((item, i) => i === index ? { ...item, generated_voice_id: data.result.generated_voice_id } : item));
+          }
+          setRegenLoading(prev => { const next = new Set(prev); next.delete(index); return next; });
         } else if (data.status === 'failed') {
           clearInterval(interval);
           toast.dismiss(`regen-${index}`);
           toast.error(`Regeneration failed: ${data.error || 'Unknown error'}`);
-          setRegenLoading(prev => {
-            const next = new Set(prev);
-            next.delete(index);
-            return next;
-          });
+          setRegenLoading(prev => { const next = new Set(prev); next.delete(index); return next; });
         }
-
-        if (attempts >= maxAttempts) {
+        if (attempts >= 90) {
           clearInterval(interval);
           toast.dismiss(`regen-${index}`);
-          toast.error('Regeneration timed out. Please try again.');
-          setRegenLoading(prev => {
-            const next = new Set(prev);
-            next.delete(index);
-            return next;
-          });
+          toast.error('Regeneration timed out.');
+          setRegenLoading(prev => { const next = new Set(prev); next.delete(index); return next; });
         }
-      } catch {
-        // Ignore polling errors
-      }
+      } catch { /* ignore */ }
     }, 2000);
   };
 
-  const applyRegenResult = (index, data, dialogue, char) => {
-    // Update voice snapshot
-    if (data.generated_voice_id) {
-      setDialogues(prev =>
-        prev.map((item, i) =>
-          i === index ? { ...item, generated_voice_id: data.generated_voice_id } : item
-        )
-      );
-    }
-
-    // Write clip replacement for AudioStudio
-    const charName = char.name || dialogue.character_name || 'Unknown';
-    const filename = data.filename || `${charName.replace(/\s/g, '_')}_${String(index + 1).padStart(2, '0')}.wav`;
-    const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
-    localStorage.setItem(replaceKey, JSON.stringify({
-      dialogueIndex: index,
-      url: data.audio_url,
-      duration: data.duration_seconds,
-      name: filename.replace('.wav', ''),
-      characterName: charName,
-      text: dialogue.text,
-    }));
+  // ===== SHARED POLLING =====
+  const startPolling = (jobId) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`${base}/api/script/job/${jobId}/status`, { headers: authHeaders });
+        if (!res.ok) return;
+        const data = await res.json();
+        setGenProgress({
+          completed: data.completed_dialogues, total: data.total_dialogues,
+          status: data.status === 'processing' ? 'Generating audio...'
+            : data.status === 'completed' ? 'Complete!'
+            : data.status === 'completed_with_errors' ? 'Completed with some errors'
+            : data.status === 'failed' ? 'Generation failed'
+            : 'Waiting...',
+        });
+        if (['completed', 'completed_with_errors', 'failed'].includes(data.status)) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setGenerating(false);
+          if (data.status === 'failed') {
+            toast.error(data.error_message || 'Generation failed');
+          } else {
+            toast.success(`Audio generated! ${data.completed_dialogues} clip${data.completed_dialogues !== 1 ? 's' : ''} ready.`);
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2000);
   };
 
-  // ========== PUBLISH ==========
+  // ===== EPISODE MANAGEMENT =====
+  const handleCreateEpisode = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(`${base}/api/episodes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ story_id: storyId, title: newEpisode.title, order: newEpisode.order, script: '' }),
+      });
+      if (!response.ok) throw new Error('Failed to create episode');
+      const episode = await response.json();
+      await refreshEpisodes();
+      setSelectedEpisode(episode);
+      setNarrationParts([{ part_number: 1, text: '', director_notes: '' }]);
+      setDialogues([createEmptyDialogue(0)]);
+      setShowCreateDialog(false);
+      setNewEpisode({ title: '', order: episodes.length + 1 });
+      toast.success('Episode created!');
+    } catch { toast.error('Failed to create episode'); }
+  };
 
   const handleToggleEpisodePublish = async (e, episodeId, isPublished) => {
     e.stopPropagation();
-    const ep = episodes.find(ep => ep.episode_id === episodeId);
-    if (!isPublished) {
-      if (!ep?.finalAudioUrl) {
-        toast.error('Cannot publish: no rendered audio. Use Audio Studio to render first.');
-        return;
-      }
+    const ep = episodes.find(ep2 => ep2.episode_id === episodeId);
+    if (!isPublished && !ep?.finalAudioUrl) {
+      toast.error('Cannot publish: no rendered audio.');
+      return;
     }
     const action = isPublished ? 'unpublish' : 'publish';
     setPublishingEp(episodeId);
     try {
-      const res = await fetch(`${base}/api/creator/episodes/${episodeId}/${action}`, {
-        method: 'POST', headers: authHeaders
-      });
+      const res = await fetch(`${base}/api/creator/episodes/${episodeId}/${action}`, { method: 'POST', headers: authHeaders });
       if (!res.ok) throw new Error(`Failed to ${action}`);
-      const data = await res.json();
-      setEpisodes(prev => prev.map(ep =>
-        ep.episode_id === episodeId ? { ...ep, isPublished: data.isPublished } : ep
-      ));
-      if (selectedEpisode?.episode_id === episodeId) {
-        setSelectedEpisode(prev => ({ ...prev, isPublished: data.isPublished }));
-      }
+      await refreshEpisodes();
       toast.success(action === 'publish' ? 'Episode published!' : 'Episode unpublished');
-    } catch (error) {
-      toast.error(`Failed to ${action} episode`);
-    } finally {
-      setPublishingEp(null);
-    }
+    } catch { toast.error(`Failed to ${action} episode`); }
+    finally { setPublishingEp(null); }
   };
 
-  const handleEpisodeSelect = (episode) => {
-    requestEpisodeSwitch(episode);
+  const handleModeSwitch = (newMode) => {
+    if (newMode === mode) return;
+    if (newMode === 'dialogue' && !dialogueModeEnabled) {
+      setShowComingSoon(true);
+      return;
+    }
+    setMode(newMode);
+    setDirty(true);
   };
 
   const progressPct = genProgress.total > 0 ? Math.round((genProgress.completed / genProgress.total) * 100) : 0;
 
-  // Count dialogues needing regeneration due to voice changes
+  // Dialogue regen count
   const regenCount = dialogues.filter(d => {
     if (!d.generated_voice_id || !d.character_id) return false;
     const char = characters.find(c => c.character_id === d.character_id);
     return char && char.voice_id && d.generated_voice_id !== char.voice_id;
   }).length;
 
+  // ===== RENDER =====
   return (
     <div className="h-full flex" data-testid="script-editor">
       {/* Episode Sidebar */}
@@ -632,9 +513,7 @@ function ScriptEditor() {
               </Button>
             </DialogTrigger>
             <DialogContent className="bg-charcoal border-white/10 text-white">
-              <DialogHeader>
-                <DialogTitle className="font-space">New Episode</DialogTitle>
-              </DialogHeader>
+              <DialogHeader><DialogTitle className="font-space">New Episode</DialogTitle></DialogHeader>
               <form onSubmit={handleCreateEpisode} className="space-y-4">
                 <div>
                   <Label>Title</Label>
@@ -644,9 +523,7 @@ function ScriptEditor() {
                   <Label>Order</Label>
                   <Input type="number" value={newEpisode.order} onChange={(e) => setNewEpisode({ ...newEpisode, order: parseInt(e.target.value) })} className="mt-2 bg-slate border-white/10 text-white" min="1" required data-testid="episode-order-input" />
                 </div>
-                <Button type="submit" className="w-full bg-neon-cyan text-obsidian hover:bg-neon-cyan/90" data-testid="create-episode-submit">
-                  Create Episode
-                </Button>
+                <Button type="submit" className="w-full bg-neon-cyan text-obsidian hover:bg-neon-cyan/90" data-testid="create-episode-submit">Create Episode</Button>
               </form>
             </DialogContent>
           </Dialog>
@@ -659,12 +536,8 @@ function ScriptEditor() {
             episodes.map((episode) => (
               <div
                 key={episode.episode_id}
-                onClick={() => handleEpisodeSelect(episode)}
-                className={`p-3 rounded-sm cursor-pointer transition-all ${
-                  selectedEpisode?.episode_id === episode.episode_id
-                    ? 'bg-slate border border-neon-cyan/50'
-                    : 'bg-slate/50 border border-transparent hover:border-white/20'
-                }`}
+                onClick={() => requestEpisodeSwitch(episode)}
+                className={`p-3 rounded-sm cursor-pointer transition-all ${selectedEpisode?.episode_id === episode.episode_id ? 'bg-slate border border-neon-cyan/50' : 'bg-slate/50 border border-transparent hover:border-white/20'}`}
                 data-testid={`episode-${episode.episode_id}`}
               >
                 <h3 className="text-white font-medium text-sm mb-1 truncate">{episode.title}</h3>
@@ -673,18 +546,12 @@ function ScriptEditor() {
                   <button
                     onClick={(e) => handleToggleEpisodePublish(e, episode.episode_id, episode.isPublished)}
                     disabled={publishingEp === episode.episode_id}
-                    className={`text-xs px-1.5 py-0.5 rounded-sm transition-colors ${
-                      episode.isPublished
-                        ? 'bg-signal-green/20 text-signal-green hover:bg-signal-green/30'
-                        : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white'
-                    }`}
+                    className={`text-xs px-1.5 py-0.5 rounded-sm transition-colors ${episode.isPublished ? 'bg-signal-green/20 text-signal-green hover:bg-signal-green/30' : 'bg-white/5 text-text-secondary hover:bg-white/10 hover:text-white'}`}
                     data-testid={`ep-publish-${episode.episode_id}`}
                   >
-                    {publishingEp === episode.episode_id ? '...' : episode.isPublished ? (
-                      <span className="flex items-center gap-0.5"><Globe className="w-3 h-3" /> Live</span>
-                    ) : (
-                      <span className="flex items-center gap-0.5"><FileEdit className="w-3 h-3" /> Draft</span>
-                    )}
+                    {publishingEp === episode.episode_id ? '...' : episode.isPublished
+                      ? <span className="flex items-center gap-0.5"><Globe className="w-3 h-3" /> Live</span>
+                      : <span className="flex items-center gap-0.5"><FileEdit className="w-3 h-3" /> Draft</span>}
                   </button>
                 </div>
               </div>
@@ -692,7 +559,6 @@ function ScriptEditor() {
           )}
         </div>
 
-        {/* Characters hint */}
         {characters.length === 0 && (
           <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-sm">
             <p className="text-amber-300 text-xs">No characters created yet. Go to the Characters tab to create characters with voice assignments.</p>
@@ -704,42 +570,65 @@ function ScriptEditor() {
       <div className="flex-1 flex flex-col">
         {selectedEpisode ? (
           <>
-            {/* Header */}
+            {/* Header with mode toggle */}
             <div className="border-b border-white/10 bg-charcoal px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 <div>
                   <h2 className="text-xl font-space font-bold text-white">{selectedEpisode.title}</h2>
                   <p className="text-sm text-text-secondary">
-                    {dialogues.filter(d => d.text.trim()).length} dialogue{dialogues.filter(d => d.text.trim()).length !== 1 ? 's' : ''}
+                    {mode === 'narration'
+                      ? `${narrationParts.filter(p => p.text.trim()).length} part${narrationParts.filter(p => p.text.trim()).length !== 1 ? 's' : ''}`
+                      : `${dialogues.filter(d => d.text.trim()).length} dialogue${dialogues.filter(d => d.text.trim()).length !== 1 ? 's' : ''}`}
                     {dirty && <span className="ml-2 text-amber-400">Unsaved</span>}
                   </p>
                 </div>
-                {selectedEpisode.isPublished && (
-                  <span className="px-2 py-0.5 text-xs bg-signal-green/20 text-signal-green rounded-sm flex items-center gap-1">
-                    <Globe className="w-3 h-3" /> Published
-                  </span>
-                )}
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleSaveScript}
-                  disabled={saving || !dirty}
-                  variant="outline"
-                  className="border-white/20 text-white hover:bg-white/5"
-                  data-testid="save-script-button"
-                >
-                  {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                  Save
+
+              {/* Mode Toggle */}
+              <div className="flex items-center gap-3">
+                <div className="flex bg-slate rounded-lg p-0.5" data-testid="mode-toggle">
+                  <button
+                    onClick={() => handleModeSwitch('narration')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'narration' ? 'bg-neon-cyan text-obsidian' : 'text-text-secondary hover:text-white'}`}
+                    data-testid="mode-narration-btn"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" /> Narration
+                  </button>
+                  <button
+                    onClick={() => handleModeSwitch('dialogue')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${mode === 'dialogue' ? 'bg-neon-cyan text-obsidian' : 'text-text-secondary hover:text-white'}`}
+                    data-testid="mode-dialogue-btn"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    {dialogueModeEnabled ? 'Dialogue' : <><Lock className="w-3 h-3 mr-0.5" />Dialogue</>}
+                  </button>
+                </div>
+
+                <Button onClick={handleSave} disabled={saving || !dirty} variant="outline" className="border-white/20 text-white hover:bg-white/5" data-testid="save-script-button">
+                  {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />} Save
                 </Button>
-                <Button
-                  onClick={handleGenerate}
-                  disabled={audioDisabled || generating || dialogues.filter(d => d.character_id && d.text.trim()).length === 0}
-                  className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 disabled:opacity-40 disabled:cursor-not-allowed"
-                  data-testid="generate-audio-button"
-                >
-                  {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                  {generating ? 'Generating...' : 'Generate Audio'}
-                </Button>
+
+                {mode === 'narration' ? (
+                  <Button
+                    onClick={handleGenerateNarration}
+                    disabled={audioDisabled || generating || !narrationVoiceId || narrationParts.filter(p => p.text.trim()).length === 0}
+                    className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 disabled:opacity-40"
+                    data-testid="generate-narration-button"
+                  >
+                    {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                    {generating ? 'Generating...' : 'Generate Audio'}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleGenerateDialogue}
+                    disabled={audioDisabled || generating || dialogues.filter(d => d.character_id && d.text.trim()).length === 0}
+                    className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 disabled:opacity-40"
+                    data-testid="generate-audio-button"
+                  >
+                    {generating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                    {generating ? 'Generating...' : 'Generate Audio'}
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -751,85 +640,126 @@ function ScriptEditor() {
               </div>
             )}
 
-            {/* Generation Progress Bar */}
+            {/* Generation Progress */}
             {generating && (
               <div className="bg-charcoal border-b border-neon-cyan/30 px-6 py-3" data-testid="generation-progress">
                 <div className="flex items-center gap-3">
                   <Loader2 className="w-4 h-4 text-neon-cyan animate-spin" />
                   <span className="text-neon-cyan text-sm font-medium">{genProgress.status}</span>
-                  <span className="text-text-secondary text-xs">
-                    {genProgress.completed}/{genProgress.total} clips
-                  </span>
+                  <span className="text-text-secondary text-xs">{genProgress.completed}/{genProgress.total} clips</span>
                   <div className="flex-1 h-2 bg-slate rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-neon-cyan rounded-full transition-all duration-500"
-                      style={{ width: `${progressPct}%` }}
-                    />
+                    <div className="h-full bg-neon-cyan rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
                   </div>
                   <span className="text-neon-cyan text-sm font-mono">{progressPct}%</span>
                 </div>
               </div>
             )}
 
-            {/* Voice Change Regeneration Banner */}
-            {!generating && regenCount > 0 && (
-              <div className="bg-amber-500/10 border-b border-amber-500/30 px-6 py-3 flex items-center justify-between" data-testid="voice-change-banner">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-400" />
-                  <span className="text-amber-300 text-sm">
-                    {regenCount} dialogue{regenCount !== 1 ? 's' : ''} need{regenCount === 1 ? 's' : ''} regeneration — character voice changed since last generation.
-                  </span>
+            {/* NARRATION MODE */}
+            {mode === 'narration' && (
+              <div className="flex-1 p-6 bg-obsidian overflow-y-auto">
+                <div className="max-w-3xl mx-auto space-y-6">
+                  {/* Narrator Voice Selector */}
+                  <div className="bg-charcoal rounded-lg border border-white/10 p-4" data-testid="narrator-voice-selector">
+                    <Label className="text-white text-sm font-medium mb-2 block">Narrator Voice</Label>
+                    <Select value={narrationVoiceId || 'none'} onValueChange={(val) => { setNarrationVoiceId(val === 'none' ? '' : val); setDirty(true); }}>
+                      <SelectTrigger className="bg-slate border-white/10 text-white" data-testid="narrator-voice-select">
+                        <SelectValue placeholder="Select a narrator voice" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-charcoal border-white/10 max-h-60">
+                        {voices.map(v => (
+                          <SelectItem key={v.voice_id} value={v.voice_id} className="text-white">
+                            <span className="flex items-center gap-2">
+                              {v.name} <span className="text-xs text-text-secondary">({v.tone})</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!narrationVoiceId && (
+                      <p className="text-amber-400 text-xs mt-2">Select a voice to enable audio generation</p>
+                    )}
+                  </div>
+
+                  {/* Narration Parts */}
+                  {narrationParts.map((part, idx) => (
+                    <NarrationPartBlock
+                      key={idx}
+                      part={part}
+                      index={idx}
+                      totalParts={narrationParts.length}
+                      onUpdate={updateNarrationPart}
+                      onRemove={removeNarrationPart}
+                      charCount={getPartCharCount(part)}
+                      charLimit={NARRATION_CHAR_LIMIT}
+                      isGenerating={generating}
+                    />
+                  ))}
+
+                  {/* Add Next Part */}
+                  <button
+                    onClick={addNarrationPart}
+                    className="w-full py-4 border-2 border-dashed border-neon-cyan/30 rounded-lg text-neon-cyan hover:text-white hover:border-neon-cyan/60 hover:bg-neon-cyan/5 transition-all flex items-center justify-center gap-2 font-medium"
+                    data-testid="add-next-part-btn"
+                  >
+                    <Plus className="w-5 h-5" /> Add Next Part
+                  </button>
                 </div>
-                <Button
-                  onClick={handleGenerate}
-                  size="sm"
-                  disabled={audioDisabled}
-                  className="bg-amber-500 text-obsidian hover:bg-amber-400 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
-                  data-testid="regenerate-voice-button"
-                >
-                  <Sparkles className="w-3 h-3 mr-1" /> Regenerate
-                </Button>
               </div>
             )}
 
-            {/* Dialogue Blocks */}
-            <div className="flex-1 p-6 bg-obsidian overflow-y-auto">
-              <div className="max-w-3xl mx-auto space-y-4">
-                {dialogues.map((d, idx) => {
-                  const char = characters.find(c => c.character_id === d.character_id);
-                  const currentVoice = char ? (char.voice_id || '') : '';
-                  const needsRegeneration = d.generated_voice_id && currentVoice && d.generated_voice_id !== currentVoice;
-                  return (
-                    <DialogueBlock
-                      key={`${idx}-${d.character_id}`}
-                      dialogue={d}
-                      index={idx}
-                      characters={characters}
-                      voices={voices}
-                      onUpdate={updateDialogue}
-                      onRemove={removeDialogue}
-                      onAdd={addDialogue}
-                      onMove={moveDialogue}
-                      onRegenerate={handleRegenerateDialogue}
-                      totalCount={dialogues.length}
-                      isGenerating={generating}
-                      regenLoading={regenLoading.has(idx)}
-                      needsRegeneration={needsRegeneration}
-                      audioDisabled={audioDisabled}
-                    />
-                  );
-                })}
+            {/* DIALOGUE MODE */}
+            {mode === 'dialogue' && (
+              <>
+                {/* Credit warning */}
+                <div className="bg-amber-500/5 border-b border-amber-500/20 px-6 py-2.5 flex items-center gap-2" data-testid="dialogue-credit-warning">
+                  <Info className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <span className="text-amber-300 text-xs">Advanced Mode (Multiple Characters) — This mode uses more credits. Use Narration Mode for faster generation.</span>
+                </div>
 
-                {/* Add Dialogue at Bottom */}
-                <button
-                  onClick={() => addDialogue(dialogues.length - 1)}
-                  className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-text-secondary hover:text-white hover:border-white/30 transition-all flex items-center justify-center gap-2"
-                  data-testid="add-dialogue-bottom"
-                >
-                  <Plus className="w-4 h-4" /> Add Dialogue
-                </button>
-              </div>
-            </div>
+                {/* Voice Change Regeneration Banner */}
+                {!generating && regenCount > 0 && (
+                  <div className="bg-amber-500/10 border-b border-amber-500/30 px-6 py-3 flex items-center justify-between" data-testid="voice-change-banner">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-400" />
+                      <span className="text-amber-300 text-sm">{regenCount} dialogue{regenCount !== 1 ? 's' : ''} need{regenCount === 1 ? 's' : ''} regeneration.</span>
+                    </div>
+                    <Button onClick={handleGenerateDialogue} size="sm" disabled={audioDisabled} className="bg-amber-500 text-obsidian hover:bg-amber-400 text-xs" data-testid="regenerate-voice-button">
+                      <Sparkles className="w-3 h-3 mr-1" /> Regenerate
+                    </Button>
+                  </div>
+                )}
+
+                {/* Dialogue Blocks */}
+                <div className="flex-1 p-6 bg-obsidian overflow-y-auto">
+                  <div className="max-w-3xl mx-auto space-y-4">
+                    {dialogues.map((d, idx) => {
+                      const char = characters.find(c => c.character_id === d.character_id);
+                      const currentVoice = char ? (char.voice_id || '') : '';
+                      const needsRegeneration = d.generated_voice_id && currentVoice && d.generated_voice_id !== currentVoice;
+                      return (
+                        <DialogueBlock
+                          key={`${idx}-${d.character_id}`}
+                          dialogue={d} index={idx} characters={characters} voices={voices}
+                          onUpdate={updateDialogue} onRemove={removeDialogue} onAdd={addDialogue}
+                          onMove={moveDialogue} onRegenerate={handleRegenerateDialogue}
+                          totalCount={dialogues.length} isGenerating={generating}
+                          regenLoading={regenLoading.has(idx)} needsRegeneration={needsRegeneration}
+                          audioDisabled={audioDisabled}
+                        />
+                      );
+                    })}
+                    <button
+                      onClick={() => addDialogue(dialogues.length - 1)}
+                      className="w-full py-3 border-2 border-dashed border-white/10 rounded-lg text-text-secondary hover:text-white hover:border-white/30 transition-all flex items-center justify-center gap-2"
+                      data-testid="add-dialogue-bottom"
+                    >
+                      <Plus className="w-4 h-4" /> Add Dialogue
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -840,11 +770,126 @@ function ScriptEditor() {
           </div>
         )}
       </div>
+
+      {/* Coming Soon Dialog */}
+      <Dialog open={showComingSoon} onOpenChange={setShowComingSoon}>
+        <DialogContent className="bg-charcoal border-white/10 text-white max-w-md" data-testid="coming-soon-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-space flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-neon-cyan" /> Dialogue Mode
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-text-secondary text-sm leading-relaxed">
+              This feature is coming soon! We'll enable advanced multi-character storytelling shortly.
+            </p>
+            <p className="text-text-secondary text-xs">
+              In the meantime, use Narration Mode for fast, credit-efficient audio generation.
+            </p>
+            <Button onClick={() => setShowComingSoon(false)} className="w-full bg-neon-cyan text-obsidian hover:bg-neon-cyan/90">
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// ========== DIALOGUE BLOCK COMPONENT ==========
+
+// ===== NARRATION PART BLOCK =====
+
+function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charCount, charLimit, isGenerating }) {
+  const pct = charLimit > 0 ? (charCount / charLimit) * 100 : 0;
+  const isNearLimit = pct > 80;
+  const isOverLimit = charCount > charLimit;
+
+  return (
+    <div className={`bg-charcoal rounded-lg border transition-all ${isOverLimit ? 'border-red-500/50' : isNearLimit ? 'border-amber-500/40' : 'border-white/10'}`} data-testid={`narration-part-${index}`}>
+      {/* Part Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <span className="text-neon-cyan font-mono text-xs font-bold bg-neon-cyan/10 px-2 py-0.5 rounded">Part {part.part_number}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Character Counter */}
+          <span className={`text-xs font-mono ${isOverLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-text-secondary'}`} data-testid={`char-counter-${index}`}>
+            {charCount.toLocaleString()} / {charLimit.toLocaleString()}
+          </span>
+          {totalParts > 1 && (
+            <button onClick={() => onRemove(index)} className="p-1 text-text-secondary hover:text-red-400 transition-colors" title="Remove part" data-testid={`remove-part-${index}`}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Part Body */}
+      <div className="px-4 py-4 space-y-4">
+        {/* Narration Text */}
+        <div>
+          <Label className="text-white text-sm mb-2 block">Narration Text</Label>
+          <Textarea
+            value={part.text}
+            onChange={(e) => onUpdate(index, 'text', e.target.value)}
+            className="bg-slate/50 border-white/5 text-white text-sm min-h-[160px] resize-y focus:border-neon-cyan/30"
+            placeholder="Write your narration here..."
+            disabled={isGenerating}
+            data-testid={`narration-text-${index}`}
+          />
+        </div>
+
+        {/* Director's Notes */}
+        <div>
+          <Label className="text-text-secondary text-xs mb-1.5 block">Director's Notes (optional)</Label>
+          <Input
+            value={part.director_notes || ''}
+            onChange={(e) => onUpdate(index, 'director_notes', e.target.value)}
+            className="bg-slate/30 border-white/5 text-white text-sm h-9"
+            placeholder="e.g., read slowly and softly, pause after first paragraph..."
+            disabled={isGenerating}
+            data-testid={`narration-notes-${index}`}
+          />
+        </div>
+
+        {/* Character limit progress bar */}
+        <div className="h-1 bg-slate rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${isOverLimit ? 'bg-red-500' : isNearLimit ? 'bg-amber-500' : 'bg-neon-cyan/40'}`}
+            style={{ width: `${Math.min(pct, 100)}%` }}
+          />
+        </div>
+
+        {/* Warning messages */}
+        {isNearLimit && !isOverLimit && (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3" data-testid={`near-limit-warning-${index}`}>
+            <p className="text-amber-300 text-xs leading-relaxed">
+              Looks like your story is getting long. To keep audio smooth, try breaking it into smaller parts.
+            </p>
+            <p className="text-amber-300/70 text-xs mt-2 leading-relaxed">
+              You can: Split into multiple parts &bull; Reduce some text &bull; Shorten Director's Notes
+            </p>
+            <p className="text-amber-300/50 text-xs mt-1">Tip: Smaller parts = faster and better audio</p>
+          </div>
+        )}
+
+        {isOverLimit && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3" data-testid={`over-limit-error-${index}`}>
+            <p className="text-red-300 text-xs leading-relaxed font-medium">
+              This section is too long to generate audio right now.
+            </p>
+            <p className="text-red-300/70 text-xs mt-2 leading-relaxed">
+              Please break it into smaller parts or reduce your text / Director's Notes. Each section supports up to {charLimit.toLocaleString()} characters (including notes).
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ===== DIALOGUE BLOCK COMPONENT (existing) =====
 
 function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove, onAdd, onMove, onRegenerate, totalCount, isGenerating, regenLoading, needsRegeneration, audioDisabled }) {
   const [expanded, setExpanded] = useState(true);
@@ -858,40 +903,22 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
 
   return (
     <div
-      className={`bg-charcoal rounded-lg border transition-all ${
-        needsRegeneration
-          ? 'border-amber-500/50'
-          : dialogue.character_id && dialogue.text.trim()
-            ? 'border-white/10'
-            : 'border-amber-500/20'
-      }`}
+      className={`bg-charcoal rounded-lg border transition-all ${needsRegeneration ? 'border-amber-500/50' : dialogue.character_id && dialogue.text.trim() ? 'border-white/10' : 'border-amber-500/20'}`}
       data-testid={`dialogue-block-${index}`}
     >
-      {/* Voice Changed Banner */}
       {needsRegeneration && (
         <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2" data-testid={`voice-changed-${index}`}>
           <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
           <span className="text-xs text-amber-300">Voice changed. Regenerate audio to apply the new voice.</span>
         </div>
       )}
-      {/* Block Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
         <GripVertical className="w-4 h-4 text-text-secondary/50 cursor-grab" />
         <span className="text-xs font-mono text-text-secondary w-6">{String(index + 1).padStart(2, '0')}</span>
-
-        {/* Character Selector */}
-        <Select
-          value={dialogue.character_id || 'none'}
-          onValueChange={(val) => onUpdate(index, 'character_id', val === 'none' ? '' : val)}
-        >
+        <Select value={dialogue.character_id || 'none'} onValueChange={(val) => onUpdate(index, 'character_id', val === 'none' ? '' : val)}>
           <SelectTrigger className="w-48 h-8 bg-slate border-white/10 text-white text-sm" data-testid={`dialogue-character-select-${index}`}>
             <SelectValue placeholder="Select character">
-              {selectedChar ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-neon-cyan" />
-                  {selectedChar.name}
-                </span>
-              ) : 'Select character'}
+              {selectedChar ? <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-neon-cyan" />{selectedChar.name}</span> : 'Select character'}
             </SelectValue>
           </SelectTrigger>
           <SelectContent className="bg-charcoal border-white/10">
@@ -900,62 +927,22 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
             ) : (
               characters.map(c => (
                 <SelectItem key={c.character_id} value={c.character_id} className="text-white">
-                  <span className="flex items-center gap-2">
-                    {c.name}
-                    {c.voice_id && <span className="text-xs text-text-secondary">({getVoiceName(c.voice_id)})</span>}
-                  </span>
+                  <span className="flex items-center gap-2">{c.name}{c.voice_id && <span className="text-xs text-text-secondary">({getVoiceName(c.voice_id)})</span>}</span>
                 </SelectItem>
               ))
             )}
           </SelectContent>
         </Select>
-
-        {selectedChar?.voice_id && (
-          <span className="text-xs px-2 py-0.5 bg-neon-purple/20 text-neon-purple rounded">
-            {getVoiceName(selectedChar.voice_id)}
-          </span>
-        )}
-
+        {selectedChar?.voice_id && <span className="text-xs px-2 py-0.5 bg-neon-purple/20 text-neon-purple rounded">{getVoiceName(selectedChar.voice_id)}</span>}
         <div className="flex-1" />
-
-        {/* Action Buttons */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => onMove(index, -1)}
-            disabled={index === 0}
-            className="p-1 text-text-secondary hover:text-white disabled:opacity-30 transition-colors"
-            title="Move up"
-          >
-            <ChevronUp className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => onMove(index, 1)}
-            disabled={index === totalCount - 1}
-            className="p-1 text-text-secondary hover:text-white disabled:opacity-30 transition-colors"
-            title="Move down"
-          >
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => onAdd(index)}
-            className="p-1 text-text-secondary hover:text-neon-cyan transition-colors"
-            title="Add dialogue below"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Three-dot context menu */}
+          <button onClick={() => onMove(index, -1)} disabled={index === 0} className="p-1 text-text-secondary hover:text-white disabled:opacity-30 transition-colors"><ChevronUp className="w-3.5 h-3.5" /></button>
+          <button onClick={() => onMove(index, 1)} disabled={index === totalCount - 1} className="p-1 text-text-secondary hover:text-white disabled:opacity-30 transition-colors"><ChevronDown className="w-3.5 h-3.5" /></button>
+          <button onClick={() => onAdd(index)} className="p-1 text-text-secondary hover:text-neon-cyan transition-colors"><Plus className="w-3.5 h-3.5" /></button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button
-                className="p-1 text-text-secondary hover:text-white transition-colors"
-                title="More options"
-                data-testid={`dialogue-menu-${index}`}
-              >
-                {regenLoading
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin text-neon-cyan" />
-                  : <MoreHorizontal className="w-3.5 h-3.5" />
-                }
+              <button className="p-1 text-text-secondary hover:text-white transition-colors" data-testid={`dialogue-menu-${index}`}>
+                {regenLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-neon-cyan" /> : <MoreHorizontal className="w-3.5 h-3.5" />}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-charcoal border-white/10 text-white text-sm min-w-[160px]">
@@ -965,8 +952,7 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
                 onSelect={() => onRegenerate(index)}
                 data-testid={`regenerate-dialogue-${index}`}
               >
-                <RefreshCw className="w-3.5 h-3.5 text-neon-cyan" />
-                Regenerate Audio
+                <RefreshCw className="w-3.5 h-3.5 text-neon-cyan" /> Regenerate Audio
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/10" />
               <DropdownMenuItem
@@ -974,17 +960,13 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
                 onSelect={() => onRemove(index)}
                 data-testid={`remove-dialogue-${index}`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete Dialogue
+                <Trash2 className="w-3.5 h-3.5" /> Delete Dialogue
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
-
-      {/* Block Body */}
       <div className="px-4 py-3 space-y-3">
-        {/* Dialogue Text */}
         <Textarea
           value={dialogue.text}
           onChange={(e) => onUpdate(index, 'text', e.target.value)}
@@ -993,15 +975,9 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
           disabled={isGenerating}
           data-testid={`dialogue-text-${index}`}
         />
-
-        {/* Director Notes (optional, collapsible) */}
         <div>
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs text-text-secondary hover:text-white transition-colors flex items-center gap-1"
-          >
-            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            Director Notes
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-text-secondary hover:text-white transition-colors flex items-center gap-1">
+            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Director Notes
           </button>
           {expanded && (
             <Input

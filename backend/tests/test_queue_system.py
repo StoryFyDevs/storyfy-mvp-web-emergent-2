@@ -17,7 +17,7 @@ import requests
 import time
 import os
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://storyfy-queue.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://dialogue-chunks.preview.emergentagent.com").rstrip("/")
 
 # Test credentials
 CREATOR_EMAIL = "testuser@test.com"

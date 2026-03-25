@@ -1,158 +1,140 @@
-<analysis>**original_problem_statement:**
-The user initially requested importing the StoryFy application and then provided a series of tasks and bug fixes, including email validation, login bugs, Vercel deployment issues, a dynamic DAW timeline upgrade, and fixing clip regeneration.
-
-In the current session, two major new tasks were introduced:
-1.  **Optimize Audio Studio Performance:** A detailed request to improve the performance of the Audio Studio to achieve 60fps interactions, smooth scrolling/dragging, and eliminate UI lag by implementing a series of advanced frontend optimizations.
-2.  **Global Generation Queue:** A comprehensive architectural plan to replace direct API calls for audio generation with a global, rate-aware, fair-queue system to eliminate 503 errors and ensure stable, scalable processing for all users.
+<analysis>**original_problem_statement**: 
+The user requested several major architectural changes and bug fixes to the StoryFy platform:
+1. Implement a Global Generation Queue to handle 503 errors and rate limits fairly.
+2. Fix deployment blockers.
+3. Fix a 500 error on story creation.
+4. Build a comprehensive Credit & Access Control system where new creators default to disabled access, controlled via an admin switch.
+5. Rebuild the Script → Audio → Studio synchronization system to use deterministic backend fetching (API-based) rather than fragile local storage.
+6. Pivot the platform to a Narration-first workflow, making the Script Editor default to a 15k-character Narration mode with chunky capabilities, hiding Dialogue Mode behind an admin toggle to save on Gemini API limits.
 
 **User's preferred language**: English
+(INSTRUCTION: Respond in English only)
 
-**what currently exists?**
-The StoryFy application is a full-stack React and FastAPI application using Supabase for the database and auth, and Google Gemini for TTS.
-
-The agent has successfully completed a major performance overhaul of the  page. This involved implementing a series of advanced optimizations, including decoupling the playhead from React state using , using GPU-accelerated CSS transforms for positioning, implementing viewport virtualization to only render visible clips, and throttling event handlers. These changes were verified by the testing agent (), which confirmed the performance goals were met and the Audio Studio loads correctly.
-
-The agent has just begun investigating the codebase for the next major task: implementing the global audio generation queue.
+**what currently exists?**: 
+StoryFy is a full-stack storytelling application (React + FastAPI + Supabase). In this session, a robust queue-based audio generation pipeline was implemented to eliminate API rate limits. Additionally, a new master credit and access control system restricts new creators until an admin approves them. The Audio Studio timeline now loads clips deterministically from the backend using an active/inactive lifecycle, fixing previous synchronization issues. The platform is currently being overhauled to support a Narration-first workflow.
 
 **Last working item**:
-- **Last item agent was working:** The agent was in the initial investigation phase for the Global Generation Queue task. It reviewed key backend files (, , , and ) to understand the current audio generation flow before starting implementation.
-- **Status:** NOT STARTED
-- **Agent Testing Done:** N
-- **Which testing method agent to use?** both
-- **User Testing Done:** N
+- **Last item agent was working**: Investigating routing and component structure to implement the Narration-first workflow and reorder the main application tabs (Characters -> Script Editor -> Audio Studio). The agent just checked  and  routing before the context window ended.
+- **Status**: IN PROGRESS
+- **Agent Testing Done**: N
+- **Which testing method agent to use?** Frontend testing agent and manual testing by screenshot tool.
+- **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
-- **Issue 1:** ESLint warnings for missing dependencies in React hooks (Priority: P2)
-
-**Issues Detail:**
-- **Issue 1:**
-  - **Description:** The frontend codebase has numerous  warnings that were suppressed using  to allow Vercel deployment. These warnings indicate potential bugs related to stale closures in React hooks.
-  - **Attempted fixes:** None. This is a known issue carried over from the previous session.
-  - **Next debug checklist:**
-    1.  Run yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in the  directory to identify all instances of the warning.
-    2.  For each warning, analyze the  or  hook and add the missing dependencies listed in the warning message to the dependency array.
-    3.  Files known to have this issue include  and .
-  - **Why fix this issue and what will be achieved with the fix?** Fixing these warnings prevents subtle and hard-to-debug bugs caused by components not re-rendering when their data dependencies change. It improves overall code quality and application stability.
-  - **Status:** NOT STARTED
-  - **Is recurring issue?** Y
-  - **Should Test frontend/backend/both after fix?** frontend
-  - **Blocked on other issue:** None.
+Issue 1: ESLint  warnings
+- Attempted fixes: None. Deferred to prioritize feature stability.
+- Next debug checklist: Run yarn run v1.22.22
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in  and address missing dependencies in  and  hooks (e.g., in , ).
+- Why fix this issue and what will be achieved with the fix? Prevents subtle state bugs caused by stale closures.
+- Status: NOT STARTED
+- Is recurring issue? Y
+- Should Test frontend/backend/both after fix? frontend
+- Blocked on other issue: None
 
 **In progress Task List**:
-- **Task 1:** Implement a global, rate-aware, fair queue system for audio generation (Priority: P0)
+Task 1: Implement Narration-first workflow & Reorder UI Tabs (P0)
+- Where to resume: Modify frontend routing/layout to reorder tabs (1. Characters, 2. Script Editor, 3. Audio Studio). Then overhaul  to include two modes: Narration Mode (default, 15k char limit including notes, chunking capability + Add Next Part) and Dialogue Mode (advanced). Add  global toggle in the Admin panel to enable/disable the Dialogue Mode UI. Update the backend to accept and process the new Narration Mode chunks (combining text + director notes into a single Gemini request per chunk).
+- What will be achieved with this? Massively reduces Gemini API usage by preventing highly-fragmented dialogue generation, simplifying the UX for non-technical users.
+- Status: IN PROGRESS
+- Should Test frontend/backend/both after fix? both
+- Blocked on something: None
 
-**Task Detail:**
-- **Task 1:**
-  - **Where to resume:** The initial code review is complete. The next step is to begin implementation based on the user's detailed specification. This involves:
-    1.  Modifying the generation/regeneration endpoints in  to create and queue jobs instead of calling the generation logic directly.
-    2.  Creating a new database model/table for .
-    3.  Implementing the background worker with a fair (round-robin per user) scheduler, rate-limit controller, and retry logic.
-    4.  Creating a new API endpoint  for the frontend to poll status.
-    5.  Updating the frontend to handle the asynchronous nature of job submission and status polling.
-  - **What will be achieved with this?** A robust, scalable, and fair audio generation system that prevents rate-limiting errors (503s), ensures stability, and provides a smooth, responsive experience for all users.
-  - **Status:** IN PROGRESS
-  - **Should Test frontend/backend/both after fix?** both
-  - **Blocked on something:** None.
+**Upcoming and Future Tasks**:
+Upcoming Tasks:
+- P1: Add Zoom System to Audio Studio (Controls to adjust  on the timeline).
+- P2: Add Zoom-to-Fit button for Audio Studio.
 
-**Upcoming and Future Tasks**
-- **Upcoming Tasks:**
-  - **P1: Add Zoom System to Audio Studio:** Implement zoom controls (/ buttons or a slider) that adjust the  value in  to allow users to zoom in and out of the timeline.
-- **Future Tasks:**
-  - **P2: Add Zoom-to-Fit Button:** Create a button that automatically calculates and sets the  value to make all audio clips fit within the visible timeline area.
-  - **P2: Performance Monitor Overlay:** As a potential enhancement, add a developer overlay to the Audio Studio showing FPS, render count, and active clip count to validate performance in real time.
-  - **P2: Performance Optimization (Virtualization):** Implement timeline virtualization to only render visible clips, improving performance for projects with a large number of audio clips. (This was part of the completed performance task, but can be revisited if further optimization is needed).
+Future Tasks:
+- P2: Clean up legacy unused  (MongoDB logic).
+- P3: Performance Monitor Overlay (Developer view for FPS).
+- P3: Deepgram + ElevenLabs integration.
+- P3: Google OAuth & PWA implementation.
 
-**Completed work in this session**
-- **Audio Studio Performance Optimization:** Successfully implemented a comprehensive set of frontend optimizations in  to achieve smooth 60fps interactions. This included:
-  - Decoupling the playhead from React state using .
-  - Switching from  positioning to GPU-accelerated .
-  - Implementing viewport virtualization to render only visible clips.
-  - Throttling drag and scroll event handlers.
-  - Fixing a temporal dead zone bug with .
-- **Testing and Verification:** Verified all performance fixes with a successful run of the , which confirmed the UI loads correctly and performance goals were met ().
+**Completed work in this session**:
+- Global Generation Queue implementation (, ) (DONE)
+- Fix Deployment blockers (, N+1 queries, ENV vars) (DONE)
+- Fix 500 error on  (fixed PostgreSQL array formatting for ) (DONE)
+- Credit & Access Control System with Admin Master Switch () (DONE)
+- Script → Audio → Studio Sync overhaul (Added , replaced  syncing with DB truth) (DONE)
+- Supabase RLS (Row Level Security) enabled via raw SQL (DONE)
 
-**Earlier issues found/mentioned but not fixed**
-- **Issue 1:** ESLint warnings for missing dependencies in React hooks (). This is a recurring issue that has been deferred to improve stability and prevent bugs.
+**Earlier issues found/mentioned but not fixed**:
+- Issue 1:  warnings in React frontend.
 
-**Known issue recurrence from previous fork**
-- None. The primary blocker from the previous fork (missing test data) appears to be resolved, as the testing agent was able to run successfully in this session.
+**Known issue recurrence from previous fork**:
+- Issue recurrence in previous fork: ESLint warnings
+- Recurrence count: 3
+- Status: NOT STARTED
 
-**Code Architecture**
+**Code Architecture**:
 
 
-**Key Technical Concepts**
-- **Frontend:** React, , , . Advanced performance patterns:  for DOM updates, CSS  for GPU acceleration, viewport virtualization, event throttling.
-- **Backend:** FastAPI, . Upcoming: Background job queuing, round-robin scheduling, rate limiting.
-- **Database & Auth:** Supabase (PostgreSQL, Auth, Storage).
-- **3rd Party APIs:** Google Gemini (TTS).
+**Key Technical Concepts**:
+- Frontend: React, TailwindCSS, Shadcn, Web Audio API,  for timeline rendering.
+- Backend: FastAPI, Supabase (PostgreSQL), Python asyncio.
+- DB Access: Uses Supabase Data API (PostgREST) via  (bypasses RLS).
+- Job Queues: In-memory async worker with round-robin fair scheduling and rate limiting.
 
-**key DB schema**
-- **stories, episodes, dialogues, audio_clips:** Existing schema for story creation.
-- **Proposed  table:**
-  - : UUID (Primary Key)
-  - : Foreign Key to 
-  - : TEXT (generate or regenerate)
-  - : TEXT (queued, processing, completed, failed)
-  - : JSONB (contains , , etc.)
-  - : TIMESTAMP
-  - : TIMESTAMP
-  - : INTEGER
-  - : TEXT
+**key DB schema**:
+- : {clip_id, dialogue_id, episode_id, dialogue_index, version_hash, audio_url, is_active}
+- : {user_id, generation_credits, audition_credits, generation_status}
+- : {job_id, user_id, episode_id, status}
 
-**changes in tech stack**
-- None.
+**changes in tech stack**:
+- Confirmed PostgreSQL (via Supabase) as the primary database. Removed all reliance on MongoDB.
 
-**All files of reference**
-- ****: Heavily modified in this session to implement major performance optimizations.
-- ****: Key existing file for the next task. Manages generation quotas.
-- ****: Contains the core logic for generating audio clips that will be invoked by the new worker system.
-- ****: Contains the API endpoints that will be modified to queue jobs instead of processing them directly.
-- ****: Main application file where the new queue worker will likely be initialized.
+**All files of reference**:
+- : (Created) Handles fair-queue scheduling for TTS.
+- : Updated to write deterministically to  table.
+- : Houses the new  endpoint.
+- : Updated with master toggle for user generation access.
+- : Refactored to drop localStorage sync and load directly from backend clips API.
+- : Requires overhaul in the next step to add Narration Mode.
 
-**Areas that need refactoring**
-- **State Management:** The use of  as a message bus between pages is inefficient and should be replaced with a proper global state manager like Zustand or React Context.
-- **React Hook Dependencies:** The  ESLint warnings should be fixed across the application to prevent bugs.
+**Areas that need refactoring**:
+- : Legacy MongoDB file. It is currently entirely unused and can be safely deleted in future refactors to avoid deployment warnings.
 
-**key api endpoints**
-- : The existing regeneration endpoint, to be modified.
-- **(New) **: To be created for the frontend to poll the status of a generation job.
+**key api endpoints**:
+- : Fetches all active clips sorted by .
+- : Master toggle to enable/disable user audio generation.
 
-**Critical Info for New Agent**
-- Your immediate and highest-priority task is to implement the **global audio generation queue** as specified by the user. The user has provided a detailed architectural plan—follow it closely.
-- The previous performance optimization task is complete and fully verified. The Audio Studio frontend is in a stable state.
-- The previous blocker regarding missing test data for the testing agent is resolved. The testing agent is now a reliable tool for verification.
-- When implementing the queue, focus on the backend first (job creation, worker, scheduler, rate limiter), then create the status endpoint, and finally update the frontend to use the new asynchronous flow.
+**Critical Info for New Agent**:
+- **Authentication**: Backend calls to Supabase use  directly, meaning RLS policies in Supabase do not block backend operations.
+- **Audio Clip Sync**: DO NOT use  for syncing audio clips to the Audio Studio. The system was just rebuilt to strictly use the  endpoint and the  flag in the DB.
+- **Next Task Priority**: You MUST immediately implement the Narration-first workflow as detailed in the user's last prompt. This includes UI tab reordering, adding Narration Mode (with 15k char limits and chunking) vs Dialogue Mode (behind an admin toggle) inside .
 
-**documents and test reports created in this job**
--  (Updated)
--  (Latest test report for performance optimization)
+**documents and test reports created in this job**:
+- 
+-  (Queue testing)
+-  (Clip Sync testing)
 
-**Last 10 User Messages and any pending HUMAN messages**
-1.  **User (Task):** Provided a detailed 12-point specification to optimize the Audio Studio's performance for 60fps interactions, including using , CSS transforms, and viewport virtualization.
-2.  (Messages 10-67): Agent implemented and tested the performance optimizations, culminating in a successful  run.
-3.  **User (Task):** Provided a new, detailed architectural specification for a global, rate-aware, fair-queue system for audio generation to eliminate 503 errors and stabilize the system.
-4.  (Messages 69-74): Agent began the initial investigation for the new queue system task by reviewing relevant backend files.
+**Last 10 User Messages and any pending HUMAN messages**:
+1. (User) Requested implementing a Global, rate-aware fair queue system. (Completed)
+2. (User) Requested Deployer Agent Health check. (Completed)
+3. (User) Reported 500 error on . (Completed)
+4. (User) Asked how to enable audio generation for new accounts. (Answered)
+5. (User) Requested comprehensive Credit and Access Control System with an Admin Master Switch. (Completed)
+6. (User) Requested renaming Audio Access to Audio Gen Access. (Completed)
+7. (User) Requested rebuilding the Script → Audio → Studio Sync system to be deterministic instead of local storage. (Completed)
+8. (User) Provided 20 Supabase RLS linting errors. (Completed via SQL instructions)
+9. (User) Requested massive UX overhaul: Narration-first workflow (15k char limit, + Add Next Part chunking), reordering tabs (Characters -> Script -> Audio Studio), and hiding Dialogue Mode behind an Admin global toggle. (Pending - IN PROGRESS).
 
 **Project Health Check:**
-- **Broken:** None.
-- **Mocked:** None.
+- Broken: None
+- Mocked: None
 
-**3rd Party Integrations**
-- **Supabase:** Database, Authentication, and Storage.
-- **Google Gemini:** Text-to-Speech (TTS) generation.
-- **Vercel:** Target deployment platform.
+**3rd Party Integrations**:
+- Gemini (TTS Generation) - Uses Emergent LLM Key
 
-**Testing status**
-- **Testing agent used after significant changes:** YES (Successfully verified the performance optimization task).
-- **Troubleshoot agent used after agent stuck in loop:** NO
-- **Test files created:** None in this session.
-- **Known regressions:** None. The last test run was successful.
+**Testing status**:
+- Testing agent used after significant changes: YES (Used for Queue System and Audio Sync System).
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: , 
+- Known regressions: None
 
-**Credentials to test flow:**
-- **User:** 
-- **Password:** 
+**Credentials to test flow**:
+- User:  / 
+- Admin:  / 
 
-**What agent forgot to execute**
-- The agent has not yet started the implementation of the primary task: the global generation queue.
-- The longstanding issue of ESLint warnings () remains unfixed.</analysis>
+**What agent forgot to execute**:
+- The agent began investigating the file structure for the Narration-first workflow but did not make any code changes before the session ended. You need to start the implementation of this feature directly.</analysis>

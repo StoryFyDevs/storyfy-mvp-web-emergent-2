@@ -202,11 +202,11 @@ function StudioLayout() {
 
         <nav className="border-b border-white/10 bg-charcoal px-6">
           <div className="flex gap-1">
-            <NavLink to="script" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-medium transition-colors ${isActive ? 'text-neon-cyan border-b-2 border-neon-cyan' : 'text-text-secondary hover:text-white'}`} data-testid="nav-script">
-              <FileText className="w-4 h-4" /> Script
-            </NavLink>
             <NavLink to="characters" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-medium transition-colors ${isActive ? 'text-neon-cyan border-b-2 border-neon-cyan' : 'text-text-secondary hover:text-white'}`} data-testid="nav-characters">
               <Users className="w-4 h-4" /> Characters
+            </NavLink>
+            <NavLink to="script" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-medium transition-colors ${isActive ? 'text-neon-cyan border-b-2 border-neon-cyan' : 'text-text-secondary hover:text-white'}`} data-testid="nav-script">
+              <FileText className="w-4 h-4" /> Script Editor
             </NavLink>
             <NavLink to="audio" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-medium transition-colors ${isActive ? 'text-signal-green border-b-2 border-signal-green' : 'text-text-secondary hover:text-white'}`} data-testid="nav-audio">
               <Music className="w-4 h-4" /> Audio Studio

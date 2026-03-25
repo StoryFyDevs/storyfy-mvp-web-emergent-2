@@ -1,0 +1,92 @@
+{
+  "summary": "Narration-first workflow feature testing completed. All 14 backend API tests passed. Frontend UI tests verified: tab order (Characters → Script Editor → Audio Studio), default route to Characters, Narration mode as default in Script Editor, narrator voice selector, Part 1 with 15k char counter, Add Next Part button creating Part 2, Dialogue mode 'coming soon' dialog when dialogue_mode_enabled=false.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Script Editor",
+        "issues": ["Audio generation access disabled banner shows for testuser@test.com even though context says user has 'active' status with 5008 credits - may need to verify user's generation_status in database"]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_narration_workflow.py",
+    "/app/test_reports/pytest/narration_workflow_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Tab order correctly implemented: Characters → Script Editor → Audio Studio → Voice Generator",
+    "Default route correctly redirects to /characters when entering studio",
+    "Narration mode is default with proper mode toggle UI",
+    "15,000 character limit enforced both in frontend counter and backend validation",
+    "Coming Soon dialog properly blocks Dialogue mode when dialogue_mode_enabled=false",
+    "Script data save/load endpoints working correctly with mode-aware format"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_narration_workflow.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "100% (all UI elements verified)"
+  },
+  "test_credentials": {
+    "creator_email": "testuser@test.com",
+    "creator_password": "password123",
+    "admin_email": "admin@admin.com",
+    "admin_password": "admin12345"
+  },
+  "seed_data_creation": "None - used existing test story 'Test Story Bug Fix' (story_404e0aa48b5b) and episode 'Test Episode' (ep_51929c8a13cd)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Narration-first workflow is fully functional. Key endpoints: GET/POST /api/script/{episode_id}/script-data for mode-aware save/load, GET /api/settings/dialogue-mode for public dialogue mode check, POST /api/script/{episode_id}/narration/generate for narration audio generation with 15k limit validation, GET/POST /api/admin-9821/settings/dialogue-mode for admin toggle. Frontend ScriptEditor.js has dual mode (narration/dialogue) with proper mode toggle, narrator voice selector, part management, and character counter.",
+  "features_verified": [
+    "Tab order: Characters → Script Editor → Audio Studio → Voice Generator",
+    "Default route: /studio/{storyId} redirects to /characters",
+    "Script Editor - Narration mode is default (active cyan button)",
+    "Script Editor - Narrator voice selector dropdown present",
+    "Script Editor - Part 1 displays with Narration Text, Director's Notes, character counter (X / 15,000)",
+    "Script Editor - Add Next Part button creates Part 2 with its own counter",
+    "Script Editor - Dialogue mode toggle shows 'Coming Soon' dialog when dialogue_mode_enabled=false",
+    "Backend API: GET /api/settings/dialogue-mode returns {enabled: false}",
+    "Backend API: POST /api/script/{episode_id}/script-data saves narration data with mode, voice_id, parts",
+    "Backend API: GET /api/script/{episode_id}/script-data loads narration data correctly",
+    "Backend API: POST /api/script/{episode_id}/narration/generate validates 15k limit (returns 422 content_too_long)",
+    "Backend API: POST /api/script/{episode_id}/narration/generate requires voice_id (returns 400)",
+    "Backend API: POST /api/script/{episode_id}/narration/generate requires parts (returns 400)",
+    "Backend API: POST /api/script/{episode_id}/narration/generate returns job_id for valid request",
+    "Backend API: Admin POST /api/admin-9821/settings/dialogue-mode toggles dialogue mode"
+  ],
+  "tests_executed": {
+    "TestHealthAndAuth::test_health_endpoint": "PASSED",
+    "TestHealthAndAuth::test_creator_login": "PASSED",
+    "TestHealthAndAuth::test_admin_login": "PASSED",
+    "TestDialogueModeSettings::test_get_dialogue_mode_public": "PASSED",
+    "TestDialogueModeSettings::test_admin_get_dialogue_mode": "PASSED",
+    "TestDialogueModeSettings::test_admin_toggle_dialogue_mode": "PASSED",
+    "TestScriptDataEndpoints::test_get_script_data": "PASSED",
+    "TestScriptDataEndpoints::test_save_script_data_narration_mode": "PASSED",
+    "TestNarrationGeneration::test_narration_generate_validates_15k_limit": "PASSED",
+    "TestNarrationGeneration::test_narration_generate_requires_voice_id": "PASSED",
+    "TestNarrationGeneration::test_narration_generate_requires_parts": "PASSED",
+    "TestNarrationGeneration::test_narration_generate_returns_job_id": "PASSED",
+    "TestVoicesEndpoint::test_get_voices": "PASSED",
+    "TestGenerationStatus::test_get_generation_status": "PASSED"
+  },
+  "ui_tests_executed": {
+    "Tab order verification": "PASSED - Characters → Script Editor → Audio Studio → Voice Generator",
+    "Default route to Characters": "PASSED - URL shows /characters when entering studio",
+    "Narration mode default": "PASSED - Narration button has bg-neon-cyan class (active)",
+    "Mode toggle present": "PASSED - Both Narration and Dialogue buttons visible",
+    "Narrator voice selector": "PASSED - Dropdown present with voice options",
+    "Part 1 block": "PASSED - Narration Part 1 block with text area and notes",
+    "Character counter": "PASSED - Shows '0 / 15,000' format",
+    "Add Next Part button": "PASSED - Creates Part 2 with its own counter",
+    "Coming Soon dialog": "PASSED - Shows when clicking Dialogue mode with dialogue_mode_enabled=false",
+    "Save button": "PASSED - Saves script data to backend"
+  }
+}

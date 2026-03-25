@@ -38,7 +38,7 @@ function AppRouter() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/studio/:storyId" element={<ProtectedRoute><StudioLayout /></ProtectedRoute>}>
-        <Route index element={<Navigate to="script" replace />} />
+        <Route index element={<Navigate to="characters" replace />} />
         <Route path="script" element={<ScriptEditor />} />
         <Route path="audio" element={<AudioStudio />} />
         <Route path="characters" element={<Characters />} />

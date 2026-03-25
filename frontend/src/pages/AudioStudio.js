@@ -1117,9 +1117,10 @@ function AudioStudio() {
       let loadedTracks = [...defaultTracks];
       let projectLoaded = false;
       let serverVersion = 0;
+      let projectState = null;
 
       if (response.ok) {
-        const projectState = await response.json();
+        projectState = await response.json();
         console.log('[Project] Loaded state:', projectState ? 'Found' : 'Empty');
         
         // Extract version from server
@@ -1182,244 +1183,124 @@ function AudioStudio() {
         }
       }
 
-      // Check for removed clips from Script Compiler (deleted dialogues) — scoped to episode
-      const removedKey = `removed_clips_${storyId}_${selectedEpisode.episode_id}`;
-      const removedRaw = localStorage.getItem(removedKey);
-      const removedClipNames = JSON.parse(removedRaw || '[]');
-      if (removedClipNames.length > 0) {
-        console.log(`[Project] Removing ${removedClipNames.length} deleted dialogue clips`);
-        loadedTracks = loadedTracks.map(track => ({
-          ...track,
-          clips: (track.clips || []).filter(clip => !removedClipNames.includes(clip.name))
-        }));
-        localStorage.removeItem(removedKey);
-      }
+      // ── STEP: SYNC clips from backend API (single source of truth) ──
+      // This replaces ALL voice clips with the definitive clip set from audio_clips table,
+      // ensuring script changes, order changes, and regenerated audio are always reflected.
+      try {
+        const clipsRes = await fetch(
+          `${process.env.REACT_APP_BACKEND_URL}/api/episodes/${selectedEpisode.episode_id}/clips`,
+          { headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` } }
+        );
+        if (clipsRes.ok) {
+          const { clips: apiClips } = await clipsRes.json();
+          if (apiClips && apiClips.length > 0) {
+            console.log(`[Sync] Received ${apiClips.length} active clips from API`);
 
-      // Check for pending clips from Script Compiler / Voice Generator — scoped to episode
-      const pendingClipsKey = `pending_clips_${storyId}_${selectedEpisode.episode_id}`;
-      const pendingClipsRaw = localStorage.getItem(pendingClipsKey);
-      const pendingData = JSON.parse(pendingClipsRaw || '[]');
+            // Remove all existing voice clips from loaded tracks (they'll be rebuilt from API)
+            const nonVoiceClips = {}; // preserve non-voice clips per track
+            loadedTracks = loadedTracks.map(track => {
+              const keptClips = (track.clips || []).filter(c => c.type && c.type !== 'voice');
+              if (keptClips.length > 0) nonVoiceClips[track.id] = keptClips;
+              return { ...track, clips: keptClips };
+            });
 
-      if (pendingData.length > 0) {
-        // Determine format: new per-character track format or legacy flat array
-        const isPerCharacterFormat = pendingData[0]?.characterName && pendingData[0]?.clips;
+            // Build voice clips from API data, preserving dialogue_index order
+            const charColors = ['#00F0FF', '#FF6B6B', '#4ECDC4', '#FFE66D', '#A78BFA', '#F97316'];
+            const charColorMap = {};
+            let colorIdx = 0;
+            let globalOffset = 0;
 
-        if (isPerCharacterFormat) {
-          // New format: array of { characterName, clips: [...] }
-          // First, clear any existing script-generated clips (scrclip-*) from all tracks
-          // to avoid duplicates on regeneration
-          loadedTracks = loadedTracks.map(track => ({
-            ...track,
-            clips: (track.clips || []).filter(clip => !clip.id?.startsWith('scrclip-'))
-          }));
+            // Sort by dialogue_index (should already be sorted from API)
+            const sortedClips = [...apiClips].sort((a, b) => a.dialogue_index - b.dialogue_index);
 
-          let totalNewClips = 0;
-          const charColors = ['#00F0FF', '#FF6B6B', '#4ECDC4', '#FFE66D', '#A78BFA', '#F97316'];
-          let colorIndex = 0;
+            for (const ac of sortedClips) {
+              const charName = ac.character_name || 'Voice';
+              if (!charColorMap[charName]) {
+                charColorMap[charName] = charColors[colorIdx % charColors.length];
+                colorIdx++;
+              }
 
-          // Collect ALL clips across all characters, sorted by dialogueIndex
-          const allPendingClips = [];
-          for (const trackData of pendingData) {
-            for (const clipData of (trackData.clips || [])) {
-              allPendingClips.push({
-                ...clipData,
-                characterName: trackData.characterName || clipData.characterName || 'Unknown',
-              });
-            }
-          }
-          // Sort by dialogueIndex for correct script order
-          allPendingClips.sort((a, b) => (a.dialogueIndex || 0) - (b.dialogueIndex || 0));
+              // Find or create a character voice track
+              let trackIdx = loadedTracks.findIndex(t =>
+                t.name === charName || t.name === `${charName} Voice`
+              );
+              if (trackIdx === -1) {
+                loadedTracks.push({
+                  id: `voice-${charName.toLowerCase().replace(/\s/g, '-')}-${Date.now()}`,
+                  name: charName.includes('Voice') ? charName : `${charName} Voice`,
+                  type: 'voice',
+                  clips: [],
+                  volume: 0.8,
+                  muted: false,
+                  solo: false,
+                });
+                trackIdx = loadedTracks.length - 1;
+              }
 
-          // Re-calculate sequential timing based on sorted order
-          let globalOffset = 0;
-          const charColorMap = {};
+              // Check if the saved project state had a matching clip with position info
+              // (to preserve user-placed positions if unchanged)
+              let clipStart = globalOffset;
+              if (projectLoaded) {
+                const savedClip = (projectState?.tracks || []).flatMap(t => t.clips || []).find(c =>
+                  c.dialogueIndex === ac.dialogue_index && c.url === ac.audio_url
+                );
+                if (savedClip && savedClip.start !== undefined) {
+                  clipStart = savedClip.start; // Preserve user-placed position
+                }
+              }
 
-          for (const clipData of allPendingClips) {
-            const charName = clipData.characterName;
-            if (!charColorMap[charName]) {
-              charColorMap[charName] = charColors[colorIndex % charColors.length];
-              colorIndex++;
-            }
-
-            // Find or create a track for this character
-            let trackIdx = loadedTracks.findIndex(t =>
-              t.name === charName || t.name === `${charName} Voice`
-            );
-            if (trackIdx === -1) {
-              loadedTracks.push({
-                id: `voice-${charName.toLowerCase().replace(/\s/g, '-')}-${Date.now()}`,
-                name: `${charName} Voice`,
-                type: 'voice',
-                clips: [],
-                volume: 0.8,
-                muted: false,
-                solo: false,
-              });
-              trackIdx = loadedTracks.length - 1;
-            }
-
-            const newClip = {
-              id: clipData.id || `scrclip-${Date.now()}-${clipData.dialogueIndex || totalNewClips}`,
-              name: clipData.name || `${charName}_${String((clipData.dialogueIndex || 0) + 1).padStart(2, '0')}`,
-              url: clipData.url,
-              start: clipData.start !== undefined ? clipData.start : globalOffset,
-              duration: clipData.duration || 5,
-              originalDuration: clipData.duration || 5,
-              color: charColorMap[charName],
-              characterName: charName,
-              text: clipData.text || '',
-              type: 'voice',
-              trimStart: 0,
-              dialogueIndex: clipData.dialogueIndex,
-            };
-
-            loadedTracks[trackIdx] = {
-              ...loadedTracks[trackIdx],
-              clips: [...(loadedTracks[trackIdx].clips || []), newClip],
-            };
-
-            globalOffset = newClip.start + newClip.duration + 0.3;
-            totalNewClips++;
-          }
-
-          localStorage.removeItem(pendingClipsKey);
-          setIsDirty(true);
-          toast.success(`Added ${totalNewClips} clip(s) across ${Object.keys(charColorMap).length} character track(s)`);
-        } else {
-          // Legacy flat format: array of clip objects
-          console.log(`[Project] Processing ${pendingData.length} pending clips (legacy format)`);
-
-          let voiceTrackIndex = loadedTracks.findIndex(t => 
-            t.type === 'voice' || t.name?.toLowerCase().includes('voice')
-          );
-          if (voiceTrackIndex === -1) voiceTrackIndex = 0;
-
-          const existingClips = loadedTracks[voiceTrackIndex]?.clips || [];
-          let maxEndTime = 0;
-          existingClips.forEach(clip => {
-            const endTime = (clip.start || 0) + (clip.duration || 5);
-            if (endTime > maxEndTime) maxEndTime = endTime;
-          });
-
-          const newClips = pendingData.map((clipData, index) => ({
-            id: clipData.id || `clip-${Date.now()}-${index}`,
-            name: clipData.name || `Voice Clip ${index + 1}`,
-            url: clipData.url,
-            start: maxEndTime + (index * 5),
-            duration: clipData.duration || 5,
-            originalDuration: clipData.duration || 5,
-            color: '#00F0FF',
-            characterName: clipData.characterName,
-            text: clipData.text,
-            type: clipData.type || 'voice',
-            trimStart: 0
-          }));
-
-          loadedTracks = loadedTracks.map((track, index) => {
-            if (index === voiceTrackIndex) {
-              return {
-                ...track,
-                clips: [...(track.clips || []), ...newClips]
-              };
-            }
-            return track;
-          });
-
-          localStorage.removeItem(pendingClipsKey);
-          setIsDirty(true);
-          toast.success(`Added ${pendingData.length} clip(s) from Voice Generator`);
-        }
-      } else if (projectLoaded) {
-        const totalClips = loadedTracks.reduce((sum, t) => sum + t.clips.length, 0);
-        toast.success(`Project loaded v${serverVersion} (${totalClips} clips)`);
-      }
-
-      // Check for a single-dialogue regeneration replacement
-      const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
-      const replaceRaw = localStorage.getItem(replaceKey);
-      if (replaceRaw) {
-        try {
-          const rd = JSON.parse(replaceRaw);
-          const { dialogueIndex, url, duration, name, characterName, text } = rd;
-          const charColors = ['#00F0FF', '#FF6B6B', '#4ECDC4', '#FFE66D', '#A78BFA', '#F97316'];
-          // Cache-bust: append timestamp to URL to force audio reload
-          const bustUrl = url.includes('?') ? `${url}&_cb=${Date.now()}` : `${url}?_cb=${Date.now()}`;
-
-          let replaced = false;
-          // Find and replace the matching clip by dialogueIndex OR by name across all tracks
-          loadedTracks = loadedTracks.map(track => {
-            const matchIdx = track.clips.findIndex(c =>
-              c.dialogueIndex === dialogueIndex ||
-              c.name === name ||
-              c.name === `${(characterName || '').replace(/\s/g, '_')}_${String(dialogueIndex + 1).padStart(2, '0')}`
-            );
-            if (matchIdx === -1) return track;
-            replaced = true;
-            const oldClip = track.clips[matchIdx];
-            const updatedClip = {
-              ...oldClip,
-              id: `scrclip-${Date.now()}-${dialogueIndex}`,
-              url: bustUrl,
-              duration: duration || oldClip.duration,
-              originalDuration: duration || oldClip.duration,
-              name: name || oldClip.name,
-              characterName: characterName || oldClip.characterName,
-              text: text || oldClip.text,
-              dialogueIndex,
-            };
-            const updatedClips = [...track.clips];
-            updatedClips[matchIdx] = updatedClip;
-            return { ...track, clips: updatedClips };
-          });
-
-          // If no existing clip with that dialogueIndex, append to the right character track
-          if (!replaced) {
-            const charName = characterName || 'Unknown';
-            let trackIdx = loadedTracks.findIndex(t =>
-              t.name === charName || t.name === `${charName} Voice`
-            );
-            if (trackIdx === -1) {
-              loadedTracks.push({
-                id: `voice-${charName.toLowerCase().replace(/\s/g, '-')}-${Date.now()}`,
-                name: `${charName} Voice`,
-                type: 'voice',
-                clips: [],
-                volume: 0.8,
-                muted: false,
-                solo: false,
-              });
-              trackIdx = loadedTracks.length - 1;
-            }
-            const maxEnd = loadedTracks[trackIdx].clips.reduce(
-              (m, c) => Math.max(m, (c.start || 0) + (c.duration || 0)), 0
-            );
-            loadedTracks[trackIdx] = {
-              ...loadedTracks[trackIdx],
-              clips: [...loadedTracks[trackIdx].clips, {
-                id: `scrclip-${Date.now()}-${dialogueIndex}`,
-                url,
-                duration: duration || 3,
-                originalDuration: duration || 3,
-                start: maxEnd + 0.3,
-                name: name || `${charName}_${String(dialogueIndex + 1).padStart(2, '0')}`,
+              const newClip = {
+                id: `scrclip-${ac.clip_id || ac.dialogue_index}`,
+                name: `${charName.replace(/\s/g, '_')}_${String(ac.dialogue_index + 1).padStart(2, '0')}`,
+                url: ac.audio_url,
+                start: clipStart,
+                duration: ac.duration_seconds || 3,
+                originalDuration: ac.duration_seconds || 3,
+                color: charColorMap[charName],
                 characterName: charName,
-                text: text || '',
-                color: charColors[0],
+                text: ac.dialogue_text || '',
                 type: 'voice',
                 trimStart: 0,
-                dialogueIndex,
-              }],
-            };
-          }
+                dialogueIndex: ac.dialogue_index,
+                versionHash: ac.version_hash,
+              };
 
-          localStorage.removeItem(replaceKey);
-          setIsDirty(true);
-          toast.success(`Dialogue ${dialogueIndex + 1} clip updated in timeline`);
-        } catch (e) {
-          console.warn('[Project] pending_clip_replace parse error:', e);
-          localStorage.removeItem(replaceKey);
+              loadedTracks[trackIdx] = {
+                ...loadedTracks[trackIdx],
+                clips: [...(loadedTracks[trackIdx].clips || []), newClip],
+              };
+
+              globalOffset = Math.max(globalOffset, clipStart + (ac.duration_seconds || 3) + 0.3);
+            }
+
+            // Clean up empty default voice tracks (if clips went to character tracks)
+            const voiceTrackWithClips = loadedTracks.filter(t => t.type === 'voice' && t.clips.length > 0);
+            if (voiceTrackWithClips.length > 0) {
+              loadedTracks = loadedTracks.filter(t => t.type !== 'voice' || t.clips.length > 0 || !defaultTracks.some(d => d.id === t.id));
+              // Ensure at least the default non-voice tracks are present
+              for (const dt of defaultTracks) {
+                if (dt.type !== 'voice' && !loadedTracks.some(t => t.id === dt.id)) {
+                  loadedTracks.push({ ...dt });
+                }
+              }
+            }
+
+            setIsDirty(true);
+            console.log(`[Sync] STUDIO_RELOAD_TRIGGERED: rebuilt ${sortedClips.length} clips from API`);
+            toast.success(`Loaded ${sortedClips.length} clips from script`);
+          }
         }
+      } catch (syncError) {
+        console.warn('[Sync] Failed to sync clips from API:', syncError);
       }
+
+      // Clear any stale localStorage sync keys
+      const pendingClipsKey = `pending_clips_${storyId}_${selectedEpisode.episode_id}`;
+      const replaceKey = `pending_clip_replace_${storyId}_${selectedEpisode.episode_id}`;
+      const removedKey = `removed_clips_${storyId}_${selectedEpisode.episode_id}`;
+      localStorage.removeItem(pendingClipsKey);
+      localStorage.removeItem(replaceKey);
+      localStorage.removeItem(removedKey);
 
       setTracks(loadedTracks);
       setIsDirty(false); // Reset dirty state after load
