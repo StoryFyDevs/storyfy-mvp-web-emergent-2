@@ -1,94 +1,111 @@
-# StoryFy - Product Requirements Document
+# StoryFy PRD - Product Requirements Document
 
 ## Original Problem Statement
-Import StoryFy app from GitHub - a full-stack audio storytelling platform for creators featuring multi-provider voice engine (Gemini TTS + ElevenLabs), character-centric voice generation, script editor, audio studio, admin panel, and mobile API.
+Build a full-stack storytelling platform (StoryFy) that enables creators to produce audio stories using AI-powered TTS (Text-to-Speech). The platform supports character creation, script editing, audio generation via Gemini TTS, and an audio studio for editing/arranging clips.
 
-## Architecture
-- **Frontend:** React 19, TailwindCSS, Shadcn/UI, Framer Motion
-- **Backend:** FastAPI, Supabase (PostgreSQL + Storage + Auth)
-- **Voice Providers:** Gemini 2.5 Flash Preview TTS (primary), ElevenLabs (switchable)
-- **Audio Pipeline:** Gemini TTS → Deepgram transcription → text alignment → clip extraction
-- **Auth:** Supabase Auth (email/password + Google OAuth)
-- **Storage:** Supabase Storage (audio files, voice samples, script clips)
-- **Queue System:** Global rate-aware fair queue (queue_worker.py) with round-robin scheduling
+## Current Architecture
+- **Frontend**: React + TailwindCSS + Shadcn/UI
+- **Backend**: FastAPI + Supabase (PostgreSQL)
+- **Auth**: Supabase Auth with JWT tokens
+- **TTS Engine**: Gemini 2.5 Flash Preview TTS (primary)
+- **Storage**: Supabase Storage for audio files
+- **Job Queue**: In-memory async worker with round-robin scheduling
+
+## Key User Flows
+1. Creator creates a Story → Episodes → Characters (with voice assignments)
+2. Writes script (Narration Mode or Dialogue Mode)
+3. Generates audio via Gemini TTS
+4. Arranges audio in Audio Studio
+5. Renders final audio → Publishes
 
 ## What's Been Implemented
 
-### Session 1: GitHub Import (Jan 2026)
-- Full app imported and configured
-- Backend + frontend .env files created with Supabase and Gemini credentials
-- Both services running on Emergent platform
+### Core Systems (Complete)
+- User authentication (signup, login, JWT)
+- Story CRUD with publishing
+- Episode CRUD with ordering
+- Character management with voice assignments
+- 30 Gemini TTS voices with display names and categories
+- Voice preview/audition system
 
-### Session 2: Email Validation Fix
-- Confirmed all existing Supabase Auth users via admin API
-- Rewrote `register_supabase_user` to use Admin API with `email_confirm: True`
+### Audio Generation Pipeline (Complete)
+- Global fair-queue generation system with rate limiting
+- Per-dialogue and batch generation with caching
+- Audio clip registration in `audio_clips` table
+- Generation job tracking with polling
 
-### Session 3: CORS & Login Fixes
-- Fixed REACT_APP_BACKEND_URL for Emergent (empty for relative URLs via ingress)
-- Fixed CORS: `allow_origin_regex=".*"` for proper origin reflection with credentials
-- Removed `credentials: 'include'` from ALL frontend fetch calls
-- Created `.npmrc` with `legacy-peer-deps=true` for Vercel deployment
-- Fixed Vercel build: `CI=false craco build`
-- Created `vercel.json` for backend Vercel deployment
+### Credit & Access Control (Complete)
+- Generation credits system
+- Audition credits system
+- Admin master switch for user audio access (`generation_status`)
+- Rate limiting (RPM, RPD, TPM)
 
-### Session 4: Dynamic DAW Timeline (Audio Studio Upgrade)
-- Removed fixed 60s timeline — replaced with dynamic computed duration
-- Dynamic timeline duration: `max(clip.start + clip.duration) + 5s buffer`, minimum 30s
-- Auto-scroll during drag, auto-expand, zoom controls
+### Audio Studio (Complete)
+- Multi-track timeline editor (Web Audio API)
+- Clip arrangement, trimming
+- Deterministic clip loading from backend API (`GET /api/episodes/{id}/clips`)
+- Chunked render + upload to Supabase Storage
+- Project state persistence
 
-### Session 5: Audio Studio Performance Optimization (Mar 2026)
-- Decoupled playhead from React state using requestAnimationFrame + direct DOM manipulation
-- GPU-accelerated clip positioning with transform: translateX()
-- Deterministic waveform visualization with seeded Math.sin()
-- Optimized drag handler using direct DOM manipulation
-- Viewport-based clip virtualization
-- Throttled scroll handler via requestAnimationFrame
+### Admin Panel (Complete)
+- Creator management (status, credits, limits)
+- Generation controls (RPD, RPM, TPM, batch size)
+- Voice engine settings
+- Usage analytics and logs
+- Storage management
+- Dialogue mode global toggle
 
-### Session 6: Global Generation Queue System (Mar 2026)
-- **Created `/app/backend/queue_worker.py`**: Complete global queue worker with:
-  - `RateLimiter` class: Enforces Gemini API limits (RPM=10, RPD=50, TPM=10000)
-  - `FairScheduler` class: Round-robin per-user scheduling so no user monopolizes the queue
-  - Background worker loop: Continuously processes jobs sequentially
-  - Exponential backoff retry: 5s → 10s → 20s, max 3 attempts
-  - Startup recovery: Loads pending jobs from DB on server restart
-  - `acquire_gemini_slot()` / `release_gemini_slot()`: Shared rate limiter used by both queue worker AND batch generation in script_compiler.py
-- **Modified regeneration endpoint** (`POST /api/script/{episode_id}/dialogue/{index}/regenerate`):
-  - Now queues a job and returns `{status: "queued", job_id}` immediately (non-blocking)
-  - No more 503/timeout errors from synchronous Gemini calls
-- **New job status endpoint** (`GET /api/jobs/{job_id}`):
-  - Returns status, queue position, queue size, and result when completed
-- **Integrated global rate limiter into all Gemini TTS calls**:
-  - `script_compiler.py._call_gemini_tts()` now waits for a rate-limit slot before calling Gemini
-  - `creator.py._gemini_generate_speech()` (audition/direct TTS) also uses the global rate limiter
-- **Updated admin queue endpoint**: Returns live in-memory queue stats + DB stats
-- **Frontend ScriptEditor.js**: Regeneration now uses polling:
-  - Shows "Your audio is in queue" / "N jobs ahead of you" / "Processing your audio..."
-  - Automatically updates timeline when job completes
-- **Testing**: 12/12 tests passed (iteration_36.json) - all backend + frontend verified
+### Narration-first Workflow (Complete - March 25, 2026)
+- **Tab Reorder**: Characters → Script Editor → Audio Studio → Voice Generator
+- **Narration Mode** (default in Script Editor):
+  - Narrator voice selector from 30 available voices
+  - 15,000 character limit per part (text + notes combined)
+  - Live character counter (X / 15,000)
+  - Director's Notes (optional) per part
+  - "+ Add Next Part" chunking (Part 1, Part 2, etc.)
+  - Friendly warning messages when nearing/exceeding limit
+  - Single Gemini TTS call per part
+- **Dialogue Mode** (advanced, behind admin toggle):
+  - Multi-character dialogue system preserved
+  - Gated by `dialogue_mode_enabled` admin setting
+  - "Coming Soon" dialog when disabled (visible but blocked)
+  - Credit usage warning when enabled
+- **Backend Endpoints**:
+  - `GET/POST /api/script/{episode_id}/script-data` - Mode-aware save/load
+  - `POST /api/script/{episode_id}/narration/generate` - Narration audio gen
+  - `GET /api/settings/dialogue-mode` - Public dialogue mode check
+  - `GET/POST /api/admin-9821/settings/dialogue-mode` - Admin toggle
 
-## Credentials
-- Admin: admin@admin.com / admin12345
-- Creator: testuser@test.com / password123
-- Story ID: story_45f8bef2c25c
+## Pending / Backlog
 
-## Test Results
-- Backend: All endpoints working (health, auth, queue, regeneration, job status)
-- Frontend: Login, dashboard, studio navigation, Audio Studio, ScriptEditor all working
-- Queue: Jobs processed sequentially, fair scheduling verified, rate limiting active
-- Previous tests: Audio Studio performance verified (iteration_35), Queue system verified (iteration_36)
+### P1 - Upcoming
+- Zoom System for Audio Studio (pixelsPerSecond controls)
+- Zoom-to-Fit button for Audio Studio
 
-## Next Action Items
-- P1: Add Zoom System to Audio Studio
-- P2: Add "Zoom-to-Fit" button
-- P2: Fix ESLint `react-hooks/exhaustive-deps` warnings
+### P2 - Future
+- Clean up legacy `db.py` (MongoDB remnant)
+- Fix ESLint `react-hooks/exhaustive-deps` warnings
+- Fix admin panel loading issue (pre-existing)
 
-## Future / Backlog (P1-P2)
-- Deepgram + ElevenLabs integration (keys not provided yet)
-- Google OAuth configuration
-- PWA for listener experience
-- Canvas-based waveform rendering (optional high-impact)
-- Virtual clip rendering for extremely large timelines (1000+ clips)
-- Zoom level presets UI
-- Audio engine separation (Web Audio on separate thread via AudioWorklet)
-- Performance Monitor Overlay (dev FPS/render count)
-- Replace localStorage message bus with proper state management (Zustand/Context)
+### P3 - Backlog
+- Performance Monitor Overlay
+- Deepgram + ElevenLabs integration
+- Google OAuth & PWA
+
+## Key API Endpoints
+- `GET /api/episodes/{episode_id}/clips` - Audio Studio clip source of truth
+- `GET/POST /api/script/{episode_id}/script-data` - Mode-aware script data
+- `POST /api/script/{episode_id}/narration/generate` - Narration generation
+- `POST /api/script/{episode_id}/generate` - Dialogue generation
+- `PATCH /api/admin-9821/users/{user_id}/audio-access` - Master toggle
+- `GET/POST /api/admin-9821/settings/dialogue-mode` - Dialogue mode setting
+
+## Key DB Tables
+- `audio_clips`: clip_id, dialogue_id, episode_id, dialogue_index, version_hash, audio_url, is_active
+- `user_profiles`: user_id, generation_credits, audition_credits, generation_status
+- `script_generation_jobs`: job_id, user_id, episode_id, status
+- `voice_settings`: setting_id, active_provider (used for dialogue_mode too)
+
+## Test Credentials
+- Creator: `testuser@test.com` / `password123`
+- Admin: `admin@admin.com` / `admin12345`
