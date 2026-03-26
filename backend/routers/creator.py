@@ -652,16 +652,20 @@ async def get_episode_clips(episode_id: str, authorization: Optional[str] = Head
         voice_id = clip.get("voice_id", "")
         char_name = voice_to_char.get(voice_id, "")
 
+        # Add cache-busting: use created_at or cache_key as version marker
+        audio_url = clip.get("audio_url", "")
+        created_ts = str(clip.get("created_at", ""))
+
         result_clips.append({
             "clip_id": clip.get("file_id", ""),
             "dialogue_index": clip.get("dialogue_index", 0),
-            "audio_url": clip.get("audio_url", ""),
+            "audio_url": audio_url,
             "voice_id": voice_id,
             "version_hash": ck,
             "duration_seconds": cache_entry.get("duration_seconds", 0),
             "character_name": char_name,
             "dialogue_text": cache_entry.get("dialogue_text", ""),
-            "created_at": str(clip.get("created_at", "")),
+            "created_at": created_ts,
         })
 
     logger.info(f"CLIPS_LOADED episode={episode_id} count={len(result_clips)}")
@@ -1175,7 +1179,7 @@ async def stream_audio_file(file_id: str):
             media_type="audio/wav",
             headers={
                 "Content-Type": "audio/wav",
-                "Cache-Control": "public, max-age=86400",
+                "Cache-Control": "no-cache, must-revalidate",
                 "Accept-Ranges": "bytes",
             },
         )

@@ -213,7 +213,7 @@ function AudioStudio() {
   }, []);
   
   // ========== AUDIO URL RESOLVER ==========
-  const resolveAudioUrl = useCallback((url) => {
+  const resolveAudioUrl = useCallback((url, versionHash) => {
     if (!url) return null;
     // base64 data URLs — use directly
     if (url.startsWith('data:')) return url;
@@ -222,11 +222,13 @@ function AudioStudio() {
     // Legacy prefix from old DB records — strip and proxy through backend
     if (url.startsWith('nhost-file:')) {
       const fileId = url.replace('nhost-file:', '');
-      return `/api/audio/stream-file/${fileId}`;
+      const cacheBuster = versionHash ? `?v=${versionHash}` : `?v=${Date.now()}`;
+      return `/api/audio/stream-file/${fileId}${cacheBuster}`;
     }
     // Canonical Supabase storage format: 'bucket/path'
     if (url.includes('/')) {
-      return `/api/audio/stream-file/${url}`;
+      const cacheBuster = versionHash ? `?v=${versionHash}` : `?v=${Date.now()}`;
+      return `/api/audio/stream-file/${url}${cacheBuster}`;
     }
     return null;
   }, []);
@@ -235,15 +237,29 @@ function AudioStudio() {
   const loadAudioBuffer = useCallback(async (clip) => {
     if (!clip || !clip.url) return null;
     
-    // Return cached buffer if exists and clip hasn't changed
-    if (audioBuffersRef.current[clip.id]) {
-      return audioBuffersRef.current[clip.id];
+    // Build a cache key that includes version info to detect changes
+    const bufferKey = clip.versionHash ? `${clip.id}_${clip.versionHash}` : clip.id;
+    
+    // Return cached buffer if exists and version matches
+    if (audioBuffersRef.current[bufferKey]) {
+      return audioBuffersRef.current[bufferKey];
+    }
+    
+    // Clear any OLD buffer for this clip.id (different version)
+    Object.keys(audioBuffersRef.current).forEach(key => {
+      if (key.startsWith(clip.id + '_') && key !== bufferKey) {
+        delete audioBuffersRef.current[key];
+      }
+    });
+    // Also clear the plain id key (legacy)
+    if (bufferKey !== clip.id) {
+      delete audioBuffersRef.current[clip.id];
     }
     
     const ctx = await ensureAudioContext();
     if (!ctx) return null;
     
-    const resolvedUrl = resolveAudioUrl(clip.url);
+    const resolvedUrl = resolveAudioUrl(clip.url, clip.versionHash);
     if (!resolvedUrl) return null;
     
     try {
@@ -273,7 +289,7 @@ function AudioStudio() {
       }
       
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      audioBuffersRef.current[clip.id] = audioBuffer;
+      audioBuffersRef.current[bufferKey] = audioBuffer;
       
       // Update clip duration with actual audio duration
       if (audioBuffer.duration && audioBuffer.duration > 0) {
@@ -287,8 +303,7 @@ function AudioStudio() {
       return audioBuffer;
     } catch (err) {
       console.error(`[Audio] Failed to load buffer for ${clip.id}:`, err);
-      // Clear any stale buffer reference
-      delete audioBuffersRef.current[clip.id];
+      delete audioBuffersRef.current[bufferKey];
       return null;
     }
   }, [ensureAudioContext, resolveAudioUrl]);
@@ -297,11 +312,7 @@ function AudioStudio() {
   const preloadAllClips = useCallback(async () => {
     const allClips = tracks.flatMap(track => track.clips);
     const results = await Promise.all(allClips.map(async (clip) => {
-      // Clear stale buffer if URL changed
-      if (audioBuffersRef.current[clip.id] && clip._urlChanged) {
-        delete audioBuffersRef.current[clip.id];
-        delete clip._urlChanged;
-      }
+      // loadAudioBuffer already handles version-aware caching
       return loadAudioBuffer(clip);
     }));
     const loaded = results.filter(Boolean).length;
@@ -387,7 +398,9 @@ function AudioStudio() {
   
   // Schedule a single clip for playback using Web Audio API
   const scheduleClipPlayback = useCallback((ctx, track, clip, currentTime) => {
-    const buffer = audioBuffersRef.current[clip.id];
+    // Use version-aware buffer key
+    const bufferKey = clip.versionHash ? `${clip.id}_${clip.versionHash}` : clip.id;
+    const buffer = audioBuffersRef.current[bufferKey];
     if (!buffer) return;
     
     const clipStart = clip.start || 0;
@@ -647,8 +660,12 @@ function AudioStudio() {
   }, []);
   
   const removeClipFromTrack = useCallback((trackId, clipId) => {
-    // Clean up audio resources
-    delete audioBuffersRef.current[clipId];
+    // Clean up audio resources (clear all version-keyed buffers for this clip)
+    Object.keys(audioBuffersRef.current).forEach(key => {
+      if (key === clipId || key.startsWith(clipId + '_')) {
+        delete audioBuffersRef.current[key];
+      }
+    });
     const key = `${trackId}-${clipId}`;
     if (audioSourcesRef.current[key]) {
       try {
@@ -881,7 +898,9 @@ function AudioStudio() {
     const track = tracks.find(t => t.id === trackId);
     if (track) {
       track.clips.forEach(clip => {
-        delete audioBuffersRef.current[clip.id];
+        const bufKey = clip.versionHash ? `${clip.id}_${clip.versionHash}` : clip.id;
+        delete audioBuffersRef.current[bufKey];
+        delete audioBuffersRef.current[clip.id]; // also clear legacy key
         const key = `${trackId}-${clip.id}`;
         if (audioSourcesRef.current[key]) {
           try {
@@ -1096,6 +1115,10 @@ function AudioStudio() {
   // ========== PROJECT SAVE/LOAD ==========
   const loadProjectStateAndPendingClips = useCallback(async () => {
     if (!selectedEpisode) return;
+
+    // Clear ALL cached audio buffers when loading a new project
+    // This ensures regenerated audio is always fetched fresh
+    audioBuffersRef.current = {};
 
     const defaultTracks = [
       { id: 'voice-1', name: 'Voice Track 1', type: 'voice', clips: [], volume: 0.8, muted: false, solo: false },
@@ -1736,7 +1759,8 @@ function AudioStudio() {
         if (track.muted || (hasSolo && !track.solo)) continue;
 
         for (const clip of track.clips) {
-          const buffer = audioBuffersRef.current[clip.id];
+          const bufKey = clip.versionHash ? `${clip.id}_${clip.versionHash}` : clip.id;
+          const buffer = audioBuffersRef.current[bufKey];
           if (!buffer) continue;
 
           const source = offlineCtx.createBufferSource();

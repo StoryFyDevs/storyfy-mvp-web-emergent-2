@@ -1,0 +1,94 @@
+{
+  "summary": "Stale audio bug fix testing completed. All 12 backend tests passed. Frontend verification confirmed clips are loading correctly with version-aware caching. The bug fix addresses: 1) Race condition between register_clip functions (fire-and-forget calls removed), 2) Browser caching (Cache-Control changed to no-cache), 3) AudioStudio buffer cache invalidation on version change.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Audio Studio",
+        "issues": ["Minor: Duplicate track key warning in console for 'control-music-1' and 'music-1' - non-critical React key issue"]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_stale_audio_fix.py",
+    "/app/test_reports/pytest/stale_audio_fix_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "✓ Fire-and-forget asyncio.create_task(sc_storage.register_clip) calls REMOVED from _generate_single_dialogue and _generate_character_batch",
+    "✓ register_clip now called with 'await' (synchronized) in run_generation_job and regenerate_single_dialogue",
+    "✓ Cache-Control header changed from max-age=86400 to 'no-cache, must-revalidate' on /api/audio/stream-file endpoint",
+    "✓ Clips endpoint returns version_hash (cache_key) for cache-busting",
+    "✓ Frontend AudioStudio clears audioBuffersRef.current = {} when loading new project",
+    "✓ Frontend loadAudioBuffer uses version-aware buffer key: clip.id + '_' + clip.versionHash",
+    "✓ Frontend resolveAudioUrl adds ?v= cache-busting parameter"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_stale_audio_fix.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend": "100% (clips loading verified, version-aware caching confirmed)"
+  },
+  "test_credentials": {
+    "affected_user_email": "harshil.zalavadiya02@gmail.com",
+    "affected_user_password": "12345678",
+    "test_user_email": "testuser@test.com",
+    "test_user_password": "password123"
+  },
+  "seed_data_creation": "None - used existing episode ep_0f584b728c1f with 2 active clips",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Stale audio bug fix verified. Episode ep_0f584b728c1f (story_1467ede1dad8) now has 2 active clips loading correctly in Audio Studio. Key verification points: 1) GET /api/episodes/{episode_id}/clips returns clips with version_hash, 2) Audio stream endpoint has no-cache headers, 3) Frontend clears buffer cache on project load and uses version-aware buffer keys.",
+  "features_verified": [
+    "GET /api/episodes/ep_0f584b728c1f/clips returns 2 active clips (was 0 before fix)",
+    "Clips include version_hash field for cache-busting",
+    "Audio stream endpoint /api/audio/stream-file has Cache-Control: no-cache, must-revalidate",
+    "No fire-and-forget asyncio.create_task(sc_storage.register_clip) calls in script_compiler.py",
+    "register_clip called with await (synchronized) in run_generation_job and regenerate_single_dialogue",
+    "Frontend AudioStudio clears all audio buffers when loading new project",
+    "Frontend loadAudioBuffer uses version-aware buffer cache key",
+    "Frontend resolveAudioUrl adds ?v= cache-busting parameter"
+  ],
+  "tests_executed": {
+    "TestHealthAndAuth::test_health_endpoint": "PASSED",
+    "TestHealthAndAuth::test_affected_user_login": "PASSED",
+    "TestHealthAndAuth::test_test_user_login": "PASSED",
+    "TestClipsEndpoint::test_clips_endpoint_returns_active_clips": "PASSED",
+    "TestClipsEndpoint::test_clips_have_version_hash": "PASSED",
+    "TestClipsEndpoint::test_clips_response_structure": "PASSED",
+    "TestAudioStreamEndpoint::test_audio_stream_has_no_cache_headers": "PASSED",
+    "TestAudioStreamEndpoint::test_audio_stream_returns_audio": "PASSED",
+    "TestRegisterClipCodeVerification::test_no_fire_and_forget_register_clip": "PASSED",
+    "TestRegisterClipCodeVerification::test_no_sc_storage_register_clip": "PASSED",
+    "TestRegisterClipCodeVerification::test_register_clip_uses_await": "PASSED",
+    "TestCacheControlHeaders::test_stream_file_endpoint_cache_control": "PASSED"
+  },
+  "ui_tests_executed": {
+    "Login as affected user": "PASSED",
+    "Navigate to Audio Studio": "PASSED",
+    "Clips loaded from API": "PASSED - Console shows '[Sync] Received 2 active clips from API'",
+    "Audio buffers preloaded": "PASSED - Console shows '[Audio] Preloaded 2/2 clips'",
+    "Timeline displays clips": "PASSED - Voice_01 clip visible on timeline"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "Race condition between two register_clip functions. The OLD sc_storage.register_clip was called via asyncio.create_task (fire-and-forget) in _generate_single_dialogue and _generate_character_batch. This ran asynchronously and deactivated clips that were just registered by the NEW synchronized register_clip function.",
+    "secondary_causes": [
+      "Browser caching stale audio with 24-hour Cache-Control header",
+      "AudioStudio buffer cache not invalidated when clip version changed"
+    ],
+    "fix_applied": [
+      "Removed asyncio.create_task(sc_storage.register_clip) calls from _generate_single_dialogue and _generate_character_batch",
+      "Changed Cache-Control from max-age=86400 to no-cache, must-revalidate",
+      "Added version-aware buffer caching in AudioStudio (bufferKey = clip.id + '_' + clip.versionHash)",
+      "Clear all audio buffers when loading new project (audioBuffersRef.current = {})",
+      "Added ?v= cache-busting parameter to audio URLs"
+    ],
+    "verification": "Episode ep_0f584b728c1f now shows 2 active clips (was 0 before fix). Audio Studio loads clips correctly with version-aware caching."
+  }
+}

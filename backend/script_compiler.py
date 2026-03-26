@@ -755,10 +755,7 @@ async def _generate_character_batch(
             clip_dur = seg["end"] - seg["start"]
             filename = f"{dialogue_id}.wav"
             audio_url = await _upload_wav(clip_wav, filename, episode_id)
-            asyncio.create_task(sc_storage.register_clip(
-                audio_url=audio_url, episode_id=episode_id, story_id=story_id,
-                dialogue_index=idx, voice_id=voice_id, is_cached=False,
-            ))
+            # NOTE: clip registration is handled by run_generation_job after batch completes
 
             await _debug_log(job_id, user_id, episode_id, "CLIP_EXTRACTION",
                              f"[{dialogue_id}] {seg['start']:.2f}s—{seg['end']:.2f}s, "
@@ -820,10 +817,7 @@ async def _generate_single_dialogue(d: Dict, voice_id: str, episode_id: str, sto
 
             filename = f"{dialogue_id}.wav"
             audio_url = await _upload_wav(wav, filename, episode_id)
-            asyncio.create_task(sc_storage.register_clip(
-                audio_url=audio_url, episode_id=episode_id, story_id=story_id,
-                dialogue_index=idx, voice_id=voice_id, is_cached=False,
-            ))
+            # NOTE: clip registration is handled by the caller (run_generation_job / regenerate_single_dialogue)
 
             return {
                 "dialogue_index": idx,
