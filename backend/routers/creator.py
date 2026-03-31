@@ -228,7 +228,7 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
         }
     }
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://us-central1-generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key={GEMINI_API_KEY}"
     try:
         resp = req_lib.post(url, json=payload, timeout=60)
     except Exception as e:

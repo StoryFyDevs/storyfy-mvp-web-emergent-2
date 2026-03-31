@@ -330,7 +330,7 @@ async def _call_gemini_tts(payload: Dict, label: str = "") -> Tuple[bytes, float
     if not await qw.acquire_gemini_slot(estimated_tokens=max(text_len, 100)):
         raise Exception("Rate limit timeout — queue is busy, please retry.")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://us-central1-generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key={GEMINI_API_KEY}"
     client = _get_http_client()
     logger.info(f"[{label}] Gemini TTS request...")
 
