@@ -17,7 +17,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = "https://dialogue-chunks.preview.emergentagent.com"
+BASE_URL = "https://audio-studio-fix.preview.emergentagent.com"
 
 # Test credentials
 AFFECTED_USER_EMAIL = "harshil.zalavadiya02@gmail.com"
