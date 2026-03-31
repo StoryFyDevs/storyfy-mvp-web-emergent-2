@@ -291,7 +291,7 @@ def _build_character_batch_payload(dialogues: List[Dict], voice_id: str,
     full_text = "\n\n".join(lines)
 
     return {
-        "contents": [{"parts": [{"text": full_text}]}],
+        "contents": [{"role": "user", "parts": [{"text": full_text}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {
@@ -307,7 +307,7 @@ def _build_single_speaker_payload(text: str, voice_id: str, notes: str = "") -> 
     else:
         full_text = text
     return {
-        "contents": [{"parts": [{"text": full_text}]}],
+        "contents": [{"role": "user", "parts": [{"text": full_text}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {

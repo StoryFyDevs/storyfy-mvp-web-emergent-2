@@ -221,7 +221,7 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
     full_text = " ".join(prompt_parts) + "\n\n" + text if prompt_parts else text
 
     payload = {
-        "contents": [{"parts": [{"text": full_text}]}],
+        "contents": [{"role": "user", "parts": [{"text": full_text}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}}
