@@ -228,9 +228,11 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
         }
     }
 
-    url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/gen-lang-client-0988882713/locations/us-central1/publishers/google/models/gemini-2.5-pro-tts:generateContent?key={GEMINI_API_KEY}"
+    from vertex_auth import VERTEX_TTS_URL, get_auth_headers
+    url = VERTEX_TTS_URL
+    auth_headers = get_auth_headers()
     try:
-        resp = req_lib.post(url, json=payload, timeout=60)
+        resp = req_lib.post(url, json=payload, headers=auth_headers, timeout=60)
     except Exception as e:
         await qw.release_gemini_slot(0)
         raise HTTPException(status_code=503, detail="Voice service is temporarily unavailable. Please try again shortly.")

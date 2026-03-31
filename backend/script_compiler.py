@@ -330,12 +330,14 @@ async def _call_gemini_tts(payload: Dict, label: str = "") -> Tuple[bytes, float
     if not await qw.acquire_gemini_slot(estimated_tokens=max(text_len, 100)):
         raise Exception("Rate limit timeout — queue is busy, please retry.")
 
-    url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/gen-lang-client-0988882713/locations/us-central1/publishers/google/models/gemini-2.5-pro-tts:generateContent?key={GEMINI_API_KEY}"
+    from vertex_auth import VERTEX_TTS_URL, get_auth_headers
+    url = VERTEX_TTS_URL
+    headers = get_auth_headers()
     client = _get_http_client()
-    logger.info(f"[{label}] Gemini TTS request...")
+    logger.info(f"[{label}] Gemini TTS request via Vertex AI...")
 
     try:
-        resp = await client.post(url, json=payload)
+        resp = await client.post(url, json=payload, headers=headers)
     except Exception:
         await qw.release_gemini_slot(0)
         raise
