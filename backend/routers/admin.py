@@ -959,7 +959,7 @@ async def get_admin_voice_details(authorization: Optional[str] = Header(None)):
     from routers.creator import _build_admin_voices, GEMINI_VOICES_MASTER
     return {
         "provider": "gemini",
-        "model": "gemini-2.5-pro-preview-tts",
+        "model": "gemini-2.5-pro-tts",
         "total_voices": len(GEMINI_VOICES_MASTER),
         "voices": _build_admin_voices(),
     }

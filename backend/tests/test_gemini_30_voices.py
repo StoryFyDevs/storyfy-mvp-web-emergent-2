@@ -241,7 +241,7 @@ class TestAdminVoiceDetails:
         data = response.json()
         
         assert data.get("provider") == "gemini"
-        assert data.get("model") == "gemini-2.5-pro-preview-tts"
+        assert data.get("model") == "gemini-2.5-pro-tts"
         assert data.get("total_voices") == 30
         print(f"✓ Admin voice details includes provider, model, total_voices")
     
@@ -295,7 +295,7 @@ class TestAdminVoiceDetails:
         voices = data.get("voices", [])
         
         for voice in voices:
-            assert voice.get("model") == "gemini-2.5-pro-preview-tts"
+            assert voice.get("model") == "gemini-2.5-pro-tts"
             assert voice.get("provider") == "gemini"
         
         print(f"✓ Admin sees model and provider for each voice")

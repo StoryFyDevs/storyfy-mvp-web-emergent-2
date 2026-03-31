@@ -162,7 +162,7 @@ def _build_admin_voices():
             "voice_id": v["voice_id"],
             "display_name": mapping.get("display_name", v["voice_id"]),
             "tone": v["tone"], "gender": v["gender"], "category": v["category"],
-            "model": "gemini-2.5-pro-preview-tts", "provider": "gemini",
+            "model": "gemini-2.5-pro-tts", "provider": "gemini",
         })
     return voices
 
@@ -228,7 +228,7 @@ async def _gemini_generate_speech(text, voice_name="Kore", style_preset=None, st
         }
     }
 
-    url = f"https://us-central1-generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-tts:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/gen-lang-client-0988882713/locations/us-central1/publishers/google/models/gemini-2.5-pro-tts:generateContent?key={GEMINI_API_KEY}"
     try:
         resp = req_lib.post(url, json=payload, timeout=60)
     except Exception as e:
