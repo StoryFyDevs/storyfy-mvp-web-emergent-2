@@ -1,102 +1,71 @@
-# StoryFy PRD - Product Requirements Document
+# StoryFy PRD - Production Requirements
 
 ## Original Problem Statement
-Build a full-stack storytelling platform (StoryFy) that enables creators to produce audio stories using AI-powered TTS (Text-to-Speech). The platform supports character creation, script editing, audio generation via Gemini TTS, and an audio studio for editing/arranging clips.
+StoryFy is an AI-powered audio storytelling platform where creators write scripts (narration or dialogue), assign character voices, and generate professional-quality audio using Gemini TTS.
 
-## Current Architecture
-- **Frontend**: React + TailwindCSS + Shadcn/UI
-- **Backend**: FastAPI + Supabase (PostgreSQL)
-- **Auth**: Supabase Auth with JWT tokens
-- **TTS Engine**: Gemini 2.5 Flash Preview TTS (primary)
-- **Storage**: Supabase Storage for audio files
-- **Job Queue**: In-memory async worker with round-robin scheduling
+## Architecture
+- **Frontend**: React + TailwindCSS + Shadcn UI
+- **Backend**: FastAPI + Supabase (PostgreSQL + Object Storage)
+- **TTS Engine**: Google Gemini 2.5 Pro TTS via Vertex AI (`us-central1`)
+- **Auth**: Supabase Auth with Bearer token
+- **Queue**: In-memory FairScheduler + Supabase `generation_queue` table
 
-## Key User Flows
-1. Creator creates a Story → Episodes → Characters (with voice assignments)
-2. Writes script (Narration Mode or Dialogue Mode)
-3. Generates audio via Gemini TTS
-4. Arranges audio in Audio Studio
-5. Renders final audio → Publishes
+## Core Features (Implemented)
+- [x] User auth (login/signup/Google OAuth)
+- [x] Story & episode management (CRUD)
+- [x] Character management with voice assignments
+- [x] Narration-first Script Editor (15k char limit, chunking, director's notes)
+- [x] Dialogue Mode (admin-toggle gated)
+- [x] Audio generation via Gemini TTS (Vertex AI us-central1 endpoint)
+- [x] Audio Studio with timeline, playback, Web Audio API
+- [x] Voice Generator (voice auditions)
+- [x] Admin panel (generation limits, credits, analytics, user management)
+- [x] **Global Generation Queue System** (Feb 2026)
+  - Centralized FIFO queue with FairScheduler (round-robin per-user)
+  - Rate limiter reading admin-configurable RPM/RPD/TPM
+  - Batch job types: narration_batch, dialogue_batch, regenerate
+  - Persistent floating status widget across all studio tabs
+  - Admin live queue monitor with real-time rate limiter stats
+  - Auto-retry with exponential backoff (3 attempts)
+  - Job recovery on server restart
 
-## What's Been Implemented
+## Key Endpoints
+- `POST /api/script/{episode_id}/generate` → submits dialogue batch to queue
+- `POST /api/script/{episode_id}/narration/generate` → submits narration batch to queue
+- `GET /api/jobs/active` → returns user's active/recent jobs with positions
+- `GET /api/jobs/{job_id}` → single job status
+- `GET /api/admin-9821/generation/queue` → live queue stats
+- `GET /api/admin-9821/generation/limits` → RPM/RPD/TPM config
+- `POST /api/admin-9821/generation/limits` → update limits
 
-### Core Systems (Complete)
-- User authentication (signup, login, JWT)
-- Story CRUD with publishing
-- Episode CRUD with ordering
-- Character management with voice assignments
-- 30 Gemini TTS voices with display names and categories
-- Voice preview/audition system
+## Key Files
+- `/app/backend/queue_worker.py` — Global queue with FairScheduler + RateLimiter
+- `/app/backend/script_compiler.py` — Core TTS generation logic
+- `/app/backend/vertex_auth.py` — Vertex AI Bearer token authentication
+- `/app/backend/routers/creator.py` — Creator endpoints
+- `/app/backend/routers/admin.py` — Admin panel endpoints
+- `/app/frontend/src/contexts/GenerationStatusContext.js` — Global job tracking
+- `/app/frontend/src/components/GenerationStatusWidget.js` — Persistent status widget
+- `/app/frontend/src/pages/ScriptEditor.js` — Script editor (Narration + Dialogue modes)
+- `/app/frontend/src/pages/AudioStudio.js` — Audio timeline + playback
+- `/app/frontend/src/pages/StudioLayout.js` — Studio wrapper with GenerationStatusProvider
 
-### Audio Generation Pipeline (Complete)
-- Global fair-queue generation system with rate limiting
-- Per-dialogue and batch generation with caching
-- Audio clip registration in `audio_clips` table
-- Generation job tracking with polling
+## DB Schema (Key Tables)
+- `audio_clips`: clip_id, dialogue_id, episode_id, dialogue_index, version_hash, audio_url, is_active
+- `user_profiles`: user_id, generation_credits, audition_credits, generation_status
+- `generation_queue`: queue_id, user_id, request_type, request_data, status, error_message, result_data
+- `script_generation_jobs`: job_id, episode_id, user_id, status, total_dialogues, completed_dialogues
 
-### Credit & Access Control (Complete)
-- Generation credits system
-- Audition credits system
-- Admin master switch for user audio access (`generation_status`)
-- Rate limiting (RPM, RPD, TPM)
+## Pending Issues
+- P2: ESLint react-hooks/exhaustive-deps warnings (4+ recurrences)
+- P3: Legacy /app/backend/db.py cleanup (MongoDB remnant)
 
-### Audio Studio (Complete)
-- Multi-track timeline editor (Web Audio API)
-- Clip arrangement, trimming
-- Deterministic clip loading from backend API (`GET /api/episodes/{id}/clips`)
-- Version-aware audio buffer caching (prevents stale audio playback)
-- Cache-busting on audio URLs (?v=versionHash)
-- Chunked render + upload to Supabase Storage
-- Project state persistence
+## Upcoming Tasks
+- P1: Zoom System for Audio Studio (pixelsPerSecond controls)
+- P1: Zoom-to-Fit button for Audio Studio
+- P2: Admin Dashboard analytics routes fix (ERR_ABORTED on /api/admin-9821/stats)
 
-### Admin Panel (Complete)
-- Creator management (status, credits, limits)
-- Generation controls (RPD, RPM, TPM, batch size)
-- Voice engine settings
-- Usage analytics and logs
-- Storage management
-- Dialogue mode global toggle
-
-### Narration-first Workflow (Complete - March 25, 2026)
-- **Tab Reorder**: Characters → Script Editor → Audio Studio → Voice Generator
-- **Narration Mode** (default in Script Editor)
-- **Dialogue Mode** (advanced, behind admin toggle)
-- Backend endpoints for narration save/load/generate
-
-### Stale Audio Bug Fix (Complete - March 25, 2026)
-- **Root Cause**: Race condition between two `register_clip` functions — fire-and-forget OLD one deactivated synchronized NEW one
-- **Fix 1**: Removed duplicate `asyncio.create_task(sc_storage.register_clip)` calls from `_generate_single_dialogue` and `_generate_character_batch`
-- **Fix 2**: Changed `Cache-Control` from `max-age=86400` to `no-cache, must-revalidate` on `/api/audio/stream-file`
-- **Fix 3**: Added version-aware buffer caching in AudioStudio (`bufferKey = clip.id + '_' + clip.versionHash`)
-- **Fix 4**: Clear all audio buffers when loading new project
-- **Fix 5**: Added `?v=` cache-busting parameter to audio stream URLs
-
-## Pending / Backlog
-
-### P1 - Upcoming
-- Zoom System for Audio Studio (pixelsPerSecond controls)
-- Zoom-to-Fit button for Audio Studio
-
-### P2 - Future
-- Clean up legacy `db.py` (MongoDB remnant)
-- Fix ESLint `react-hooks/exhaustive-deps` warnings
-- Fix admin panel loading issue (pre-existing)
-
-### P3 - Backlog
-- Performance Monitor Overlay
-- Deepgram + ElevenLabs integration
-- Google OAuth & PWA
-
-## Key API Endpoints
-- `GET /api/episodes/{episode_id}/clips` - Audio Studio clip source of truth
-- `GET/POST /api/script/{episode_id}/script-data` - Mode-aware script data
-- `POST /api/script/{episode_id}/narration/generate` - Narration generation
-- `POST /api/script/{episode_id}/generate` - Dialogue generation
-- `GET /api/audio/stream-file/{file_id}` - Audio streaming (no-cache)
-- `PATCH /api/admin-9821/users/{user_id}/audio-access` - Master toggle
-- `GET/POST /api/admin-9821/settings/dialogue-mode` - Dialogue mode setting
-
-## Test Credentials
-- Creator: `testuser@test.com` / `password123`
-- Admin: `admin@admin.com` / `admin12345`
-- Affected user: `harshil.zalavadiya02@gmail.com` / `12345678`
+## Future / Backlog
+- P3: Performance Monitor Overlay (developer FPS view)
+- P3: Deepgram + ElevenLabs integration
+- P3: PWA implementation
