@@ -39,16 +39,19 @@ function GenerationControls() {
   const [dialogueModeEnabled, setDialogueModeEnabled] = useState(false);
   const [dialogueModeLoading, setDialogueModeLoading] = useState(false);
   
+  const [queueStats, setQueueStats] = useState(null);
+
   const token = localStorage.getItem('admin_token');
   const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const fetchData = useCallback(async () => {
     try {
-      const [limitsRes, analyticsRes, creatorsRes, dialogueModeRes] = await Promise.all([
+      const [limitsRes, analyticsRes, creatorsRes, dialogueModeRes, queueRes] = await Promise.all([
         fetch(`${base}/api/admin-9821/generation/limits`, { headers }),
         fetch(`${base}/api/admin-9821/generation/analytics`, { headers }),
         fetch(`${base}/api/admin-9821/generation/creators`, { headers }),
-        fetch(`${base}/api/admin-9821/settings/dialogue-mode`, { headers })
+        fetch(`${base}/api/admin-9821/settings/dialogue-mode`, { headers }),
+        fetch(`${base}/api/admin-9821/generation/queue`, { headers })
       ]);
       
       if (limitsRes.ok) {
@@ -69,6 +72,11 @@ function GenerationControls() {
       if (dialogueModeRes.ok) {
         const data = await dialogueModeRes.json();
         setDialogueModeEnabled(data.enabled === true);
+      }
+
+      if (queueRes.ok) {
+        const data = await queueRes.json();
+        setQueueStats(data);
       }
     } catch (err) {
       toast.error('Failed to load generation controls');
@@ -401,53 +409,70 @@ function GenerationControls() {
           <div className="bg-charcoal border border-white/10 rounded-lg p-6">
             <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
               <Activity className="w-5 h-5 text-electric-purple" />
-              Real-Time Status
+              Live Queue Monitor
             </h2>
             
-            {analytics && (
-              <div className="space-y-4">
+            <div className="space-y-4">
+              {queueStats && (
                 <div className="bg-slate rounded-lg p-4">
-                  <div className="text-text-secondary text-sm mb-2">Queue Status</div>
+                  <div className="text-text-secondary text-sm mb-2">Worker Queue (Live)</div>
                   <div className="flex items-center justify-between">
-                    <span className="text-white">Pending Requests</span>
-                    <span className="text-neon-cyan font-mono">{analytics.queue_status?.pending || 0}</span>
+                    <span className="text-white">Queued Jobs</span>
+                    <span className="text-warm-gold font-mono">{queueStats.live_queue?.queued || 0}</span>
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-white">Processing</span>
-                    <span className="text-electric-purple font-mono">{analytics.queue_status?.processing || 0}</span>
-                  </div>
-                </div>
-                
-                <div className="bg-slate rounded-lg p-4">
-                  <div className="text-text-secondary text-sm mb-2">Current Minute</div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white">Requests</span>
-                    <span className="font-mono text-white">
-                      {analytics.current_minute?.requests || 0} / {limits.rpm}
-                    </span>
+                    <span className="text-neon-cyan font-mono">{queueStats.live_queue?.processing || 0}</span>
                   </div>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-white">Tokens</span>
-                    <span className="font-mono text-white">
-                      {analytics.current_minute?.tokens || 0} / {limits.tpm}
-                    </span>
+                    <span className="text-white">Total Active</span>
+                    <span className="text-white font-mono font-bold">{queueStats.live_queue?.total_in_queue || 0}</span>
                   </div>
-                </div>
-                
-                <div className="bg-slate rounded-lg p-4">
-                  <div className="text-text-secondary text-sm mb-2">Per-Creator Limit</div>
-                  <div className="text-2xl font-bold text-white">
-                    {analytics.creators?.per_creator_daily_limit || 0}
-                    <span className="text-sm text-text-secondary font-normal ml-2">generations/day</span>
-                  </div>
-                  {limits.auto_distribute && (
-                    <p className="text-text-secondary text-xs mt-2">
-                      Auto-calculated: {limits.rpd} RPD / {analytics.creators?.active_count || 1} creators
-                    </p>
+                  {queueStats.live_queue?.rate_limiter && (
+                    <>
+                      <div className="border-t border-white/10 mt-3 pt-3">
+                        <div className="text-text-secondary text-xs mb-2">Rate Limiter (This Minute)</div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-text-secondary text-sm">Requests</span>
+                          <span className="font-mono text-white text-sm">
+                            {queueStats.live_queue.rate_limiter.requests_this_minute || 0} / {queueStats.live_queue.rate_limiter.limits?.rpm || limits.rpm}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-text-secondary text-sm">Tokens</span>
+                          <span className="font-mono text-white text-sm">
+                            {queueStats.live_queue.rate_limiter.tokens_this_minute || 0} / {queueStats.live_queue.rate_limiter.limits?.tpm || limits.tpm}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-text-secondary text-sm">Today Total</span>
+                          <span className="font-mono text-white text-sm">
+                            {queueStats.live_queue.rate_limiter.requests_today || 0} / {queueStats.live_queue.rate_limiter.limits?.rpd || limits.rpd}
+                          </span>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+
+              {analytics && (
+                <>
+                  <div className="bg-slate rounded-lg p-4">
+                    <div className="text-text-secondary text-sm mb-2">Per-Creator Limit</div>
+                    <div className="text-2xl font-bold text-white">
+                      {analytics.creators?.per_creator_daily_limit || 0}
+                      <span className="text-sm text-text-secondary font-normal ml-2">generations/day</span>
+                    </div>
+                    {limits.auto_distribute && (
+                      <p className="text-text-secondary text-xs mt-2">
+                        Auto-calculated: {limits.rpd} RPD / {analytics.creators?.active_count || 1} creators
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

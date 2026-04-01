@@ -6,6 +6,11 @@ Architecture:
   Frontend → submit_job() → DB + in-memory scheduler
   Worker loop: pick_next_fair() → check rate limits → process → update DB
   Frontend polls: get_job_status() → returns status + queue position
+
+Job types:
+  - regenerate: single dialogue regeneration
+  - narration_batch: batch narration generation (multiple parts)
+  - dialogue_batch: batch dialogue generation (multiple dialogues)
 """
 import asyncio
 import uuid
@@ -21,22 +26,38 @@ import supabase_db as ndb
 logger = logging.getLogger("queue_worker")
 
 # ──────────────────────────────────────────────
-#  RATE LIMITS (Gemini API)
-# ──────────────────────────────────────────────
-RPM_LIMIT = 10       # Requests per minute
-RPD_LIMIT = 50       # Requests per day
-TPM_LIMIT = 10000    # Tokens per minute
-
-# ──────────────────────────────────────────────
 #  RETRY CONFIG
 # ──────────────────────────────────────────────
 MAX_RETRIES = 3
 RETRY_DELAYS = [5, 10, 20]  # seconds (exponential backoff)
 
 
+# ──────────────────────────────────────────────
+#  ADMIN-CONFIGURABLE DEFAULTS (overridden at runtime)
+# ──────────────────────────────────────────────
+DEFAULT_RPM = 10
+DEFAULT_RPD = 50
+DEFAULT_TPM = 10000
+
+
+async def _get_admin_limits() -> Dict:
+    """Read admin-configured limits from the database."""
+    try:
+        import generation_queue as gq
+        limits = await gq.get_system_limits()
+        return {
+            "rpm": limits.get("rpm", DEFAULT_RPM),
+            "rpd": limits.get("rpd", DEFAULT_RPD),
+            "tpm": limits.get("tpm", DEFAULT_TPM),
+        }
+    except Exception:
+        return {"rpm": DEFAULT_RPM, "rpd": DEFAULT_RPD, "tpm": DEFAULT_TPM}
+
+
 class RateLimiter:
     """Global rate limiter for Gemini API calls.
     Shared by both the queue worker and batch generation in script_compiler.
+    Reads admin-configured limits on each check.
     """
 
     def __init__(self):
@@ -46,20 +67,35 @@ class RateLimiter:
         self._daily_count: int = 0
         self._daily_date: Optional[str] = None
         self._lock = asyncio.Lock()
+        # Cached limits (refreshed periodically)
+        self._cached_limits: Dict = {"rpm": DEFAULT_RPM, "rpd": DEFAULT_RPD, "tpm": DEFAULT_TPM}
+        self._limits_last_fetched: float = 0
+
+    async def _refresh_limits(self):
+        """Refresh limits from admin config every 30 seconds."""
+        now = time.time()
+        if now - self._limits_last_fetched > 30:
+            self._cached_limits = await _get_admin_limits()
+            self._limits_last_fetched = now
 
     async def can_proceed(self, estimated_tokens: int = 500) -> bool:
         async with self._lock:
+            await self._refresh_limits()
             self._cleanup_minute_window()
             today = datetime.now(timezone.utc).date().isoformat()
             if self._daily_date != today:
                 self._daily_count = 0
                 self._daily_date = today
 
-            if len(self._minute_requests) >= RPM_LIMIT:
+            rpm = self._cached_limits.get("rpm", DEFAULT_RPM)
+            tpm = self._cached_limits.get("tpm", DEFAULT_TPM)
+            rpd = self._cached_limits.get("rpd", DEFAULT_RPD)
+
+            if len(self._minute_requests) >= rpm:
                 return False
-            if self._minute_tokens + estimated_tokens > TPM_LIMIT:
+            if self._minute_tokens + estimated_tokens > tpm:
                 return False
-            if self._daily_count >= RPD_LIMIT:
+            if self._daily_count >= rpd:
                 return False
             return True
 
@@ -72,10 +108,22 @@ class RateLimiter:
     async def seconds_until_available(self) -> float:
         async with self._lock:
             self._cleanup_minute_window()
-            if len(self._minute_requests) >= RPM_LIMIT and self._minute_requests:
+            rpm = self._cached_limits.get("rpm", DEFAULT_RPM)
+            if len(self._minute_requests) >= rpm and self._minute_requests:
                 oldest = self._minute_requests[0]
                 return max(1.0, 60.0 - (time.time() - oldest))
             return 0.0
+
+    async def get_stats(self) -> Dict:
+        """Return current rate limiter stats for admin monitoring."""
+        async with self._lock:
+            self._cleanup_minute_window()
+            return {
+                "requests_this_minute": len(self._minute_requests),
+                "tokens_this_minute": self._minute_tokens,
+                "requests_today": self._daily_count,
+                "limits": self._cached_limits,
+            }
 
     def _cleanup_minute_window(self):
         now = time.time()
@@ -235,6 +283,80 @@ async def get_job_status(job_id: str) -> Optional[Dict]:
     }
 
 
+async def get_user_active_jobs(user_id: str) -> list:
+    """Get all active (queued/processing) jobs for a user, with queue positions."""
+    try:
+        # Get from generation_queue (all types)
+        queue_items = await ndb.find_many(
+            "generation_queue",
+            {"user_id": user_id, "status": {"_in": ["queued", "processing"]}},
+            order_by={"created_at": "asc"},
+        )
+
+        # Also get recently completed/failed (last 60s) so frontend sees completion
+        import datetime as dt_mod
+        cutoff = (datetime.now(timezone.utc) - dt_mod.timedelta(seconds=60)).isoformat()
+        recent_done = await ndb.find_many(
+            "generation_queue",
+            {"user_id": user_id, "status": {"_in": ["completed", "failed"]}},
+            order_by={"completed_at": "desc"},
+            limit=5,
+        )
+        # Filter to recent completions only
+        recent_done = [r for r in recent_done if str(r.get("completed_at", "")) >= cutoff]
+
+        jobs = []
+        for item in queue_items + recent_done:
+            queue_id = item.get("queue_id", "")
+            status = item.get("status", "unknown")
+            job_type = item.get("request_type", "")
+
+            position = 0
+            queue_size = 0
+            if status == "queued":
+                position = await _scheduler.get_position(queue_id)
+                queue_size = await _scheduler.queue_size()
+
+            # For batch jobs, get script_generation_jobs progress
+            script_progress = None
+            request_data = item.get("request_data", "{}")
+            if isinstance(request_data, str):
+                try:
+                    request_data = json.loads(request_data)
+                except (json.JSONDecodeError, TypeError):
+                    request_data = {}
+
+            script_job_id = request_data.get("script_job_id", "")
+            if script_job_id and job_type in ("narration_batch", "dialogue_batch"):
+                script_job = await ndb.find_one("script_generation_jobs", {"job_id": script_job_id})
+                if script_job:
+                    script_progress = {
+                        "completed_dialogues": script_job.get("completed_dialogues", 0),
+                        "total_dialogues": script_job.get("total_dialogues", 0),
+                        "script_status": script_job.get("status", "unknown"),
+                        "error_message": script_job.get("error_message", ""),
+                    }
+
+            jobs.append({
+                "job_id": queue_id,
+                "job_type": job_type,
+                "status": status,
+                "position_in_queue": max(0, position) if status == "queued" else 0,
+                "queue_size": queue_size,
+                "script_job_id": script_job_id,
+                "script_progress": script_progress,
+                "episode_id": request_data.get("episode_id", ""),
+                "error": item.get("error_message", ""),
+                "created_at": str(item.get("created_at", "")),
+                "completed_at": str(item.get("completed_at", "")) if item.get("completed_at") else None,
+            })
+
+        return jobs
+    except Exception as e:
+        logger.error(f"Error getting user active jobs: {e}")
+        return []
+
+
 async def get_queue_info() -> Dict:
     """Get overall queue status for admin monitoring."""
     queue_size = await _scheduler.queue_size()
@@ -242,10 +364,12 @@ async def get_queue_info() -> Dict:
         processing = await ndb.count_rows("generation_queue", {"status": "processing"})
     except Exception:
         processing = 0
+    stats = await _rate_limiter.get_stats()
     return {
         "queued": queue_size,
         "processing": processing,
         "total_in_queue": queue_size + processing,
+        "rate_limiter": stats,
     }
 
 
@@ -273,7 +397,7 @@ async def release_gemini_slot(tokens_used: int = 0):
 
 
 # ──────────────────────────────────────────────
-#  WORKER LOOP
+#  JOB PROCESSORS
 # ──────────────────────────────────────────────
 
 async def _process_job(job: Dict):
@@ -298,6 +422,10 @@ async def _process_job(job: Dict):
     try:
         if job_type == "regenerate":
             result = await _process_regenerate(payload, user_id)
+        elif job_type == "narration_batch":
+            result = await _process_batch(payload, user_id)
+        elif job_type == "dialogue_batch":
+            result = await _process_batch(payload, user_id)
         else:
             raise ValueError(f"Unknown job type: {job_type}")
 
@@ -311,6 +439,18 @@ async def _process_job(job: Dict):
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Job {job_id} failed (attempt {retry_count + 1}/{MAX_RETRIES}): {error_msg}")
+
+        # For batch jobs, also update script_generation_jobs
+        script_job_id = payload.get("script_job_id", "")
+        if script_job_id and retry_count >= MAX_RETRIES - 1:
+            try:
+                await ndb.update_rows("script_generation_jobs", {"job_id": script_job_id}, {
+                    "status": "failed",
+                    "error_message": error_msg[:300],
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
 
         if retry_count < MAX_RETRIES - 1:
             delay = RETRY_DELAYS[min(retry_count, len(RETRY_DELAYS) - 1)]
@@ -367,6 +507,38 @@ async def _process_regenerate(payload: Dict, user_id: str) -> Dict:
         "generated_voice_id": voice_id,
     }
 
+
+async def _process_batch(payload: Dict, user_id: str) -> Dict:
+    """Process a batch generation job (narration or dialogue).
+    Delegates to script_compiler.run_generation_job which handles
+    caching, batching, and per-dialogue progress updates.
+    """
+    import script_compiler as sc
+
+    script_job_id = payload["script_job_id"]
+    episode_id = payload["episode_id"]
+    story_id = payload.get("story_id", "")
+    dialogues_data = payload["dialogues_data"]
+    voice_map = payload["voice_map"]
+
+    # Update script_generation_jobs to processing
+    await ndb.update_rows("script_generation_jobs", {"job_id": script_job_id}, {
+        "status": "processing",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Run the actual generation pipeline
+    await sc.run_generation_job(
+        script_job_id, episode_id, user_id,
+        dialogues_data, voice_map, story_id=story_id
+    )
+
+    return {"success": True, "script_job_id": script_job_id}
+
+
+# ──────────────────────────────────────────────
+#  WORKER LOOP
+# ──────────────────────────────────────────────
 
 async def _worker_loop():
     """Main worker loop — processes jobs with rate limiting and fair scheduling."""

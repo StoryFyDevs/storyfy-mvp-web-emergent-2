@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import { ArrowLeft, FileText, Users, Music, Mic2, Globe, FileEdit, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { StudioProvider, useStudio } from '../contexts/StudioContext';
+import { GenerationStatusProvider } from '../contexts/GenerationStatusContext';
+import GenerationStatusWidget from '../components/GenerationStatusWidget';
 import LoadingScreen from '../components/LoadingScreen';
 
 function UnsavedChangesModal() {
@@ -139,6 +141,7 @@ function StudioLayout() {
 
   return (
     <StudioProvider storyId={storyId}>
+      <GenerationStatusProvider>
       <div className="min-h-screen bg-obsidian flex flex-col" data-testid="studio-layout">
         <header className="border-b border-white/10 bg-charcoal px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -219,7 +222,9 @@ function StudioLayout() {
 
         <StudioContent story={story} fetchStory={fetchStory} />
         <UnsavedChangesModal />
+        <GenerationStatusWidget />
       </div>
+      </GenerationStatusProvider>
     </StudioProvider>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
 import { useStudio } from '../contexts/StudioContext';
+import { useGenerationStatus } from '../contexts/GenerationStatusContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
@@ -37,6 +38,7 @@ function ScriptEditor() {
     setIsProjectDirty,
     registerSaveCallback,
   } = useStudio();
+  const { trackNewJob } = useGenerationStatus();
 
   // ===== MODE STATE =====
   const [mode, setMode] = useState('narration');
@@ -235,7 +237,7 @@ function ScriptEditor() {
 
     await handleSave();
     setGenerating(true);
-    setGenProgress({ completed: 0, total: validParts.length, status: 'Starting...' });
+    setGenProgress({ completed: 0, total: validParts.length, status: 'Queued...' });
 
     try {
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/narration/generate`, {
@@ -248,7 +250,14 @@ function ScriptEditor() {
         throw new Error(friendlyError(err.detail) || 'Generation failed');
       }
       const data = await res.json();
-      setGenProgress({ completed: 0, total: data.total_dialogues || validParts.length, status: 'Generating audio...' });
+      trackNewJob({
+        job_id: data.job_id,
+        queue_id: data.queue_id,
+        job_type: 'narration_batch',
+        total_dialogues: data.total_dialogues || validParts.length,
+        episode_id: selectedEpisode.episode_id,
+      });
+      setGenProgress({ completed: 0, total: data.total_dialogues || validParts.length, status: 'Queued...' });
       startPolling(data.job_id);
     } catch (error) {
       toast.error(error.message || 'Failed to start generation');
@@ -307,7 +316,7 @@ function ScriptEditor() {
 
     await handleSave();
     setGenerating(true);
-    setGenProgress({ completed: 0, total: valid.length, status: 'Starting...' });
+    setGenProgress({ completed: 0, total: valid.length, status: 'Queued...' });
 
     try {
       const indexed = valid.map((d, i) => {
@@ -324,7 +333,14 @@ function ScriptEditor() {
         throw new Error(friendlyError(err.detail) || 'Generation failed');
       }
       const data = await res.json();
-      setGenProgress({ completed: 0, total: data.total_dialogues, status: 'Generating audio...' });
+      trackNewJob({
+        job_id: data.job_id,
+        queue_id: data.queue_id,
+        job_type: 'dialogue_batch',
+        total_dialogues: data.total_dialogues,
+        episode_id: selectedEpisode.episode_id,
+      });
+      setGenProgress({ completed: 0, total: data.total_dialogues, status: 'Queued...' });
       startPolling(data.job_id);
     } catch (error) {
       toast.error(error.message || 'Failed to start generation');
@@ -425,6 +441,7 @@ function ScriptEditor() {
             : data.status === 'completed' ? 'Complete!'
             : data.status === 'completed_with_errors' ? 'Completed with some errors'
             : data.status === 'failed' ? 'Generation failed'
+            : data.status === 'queued' ? 'In queue...'
             : 'Waiting...',
         });
         if (['completed', 'completed_with_errors', 'failed'].includes(data.status)) {

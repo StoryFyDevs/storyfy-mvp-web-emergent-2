@@ -1429,7 +1429,7 @@ async def generate_script_audio(episode_id: str, body: ScriptGenerateRequest, au
         "job_id": job_id,
         "episode_id": episode_id,
         "user_id": user_id,
-        "status": "pending",
+        "status": "queued",
         "total_dialogues": len(dialogues_data),
         "completed_dialogues": 0,
         "batches_total": 0,
@@ -1438,13 +1438,21 @@ async def generate_script_audio(episode_id: str, body: ScriptGenerateRequest, au
         "error_message": "",
     })
 
-    # Start background generation
+    # Submit to global generation queue (processed sequentially)
     story_id = ep.get("story_id", "")
-    asyncio.create_task(sc.run_generation_job(job_id, episode_id, user_id, dialogues_data, voice_map, story_id=story_id))
+    import queue_worker as qw
+    queue_id = await qw.submit_job(user_id, "dialogue_batch", {
+        "script_job_id": job_id,
+        "episode_id": episode_id,
+        "story_id": story_id,
+        "dialogues_data": dialogues_data,
+        "voice_map": voice_map,
+    })
 
     return {
         "job_id": job_id,
-        "status": "pending",
+        "queue_id": queue_id,
+        "status": "queued",
         "total_dialogues": len(dialogues_data),
         "removed_clips": removed_clips,
     }
@@ -1518,6 +1526,29 @@ async def get_script_job_status(job_id: str, authorization: Optional[str] = Head
     }
 
 
+
+@creator_router.get("/jobs/active")
+async def get_active_jobs(authorization: Optional[str] = Header(None)):
+    """Get all active generation jobs for the current user.
+    Returns queued, processing, and recently completed/failed jobs
+    with queue positions and progress info for batch jobs.
+    """
+    profile = await _auth(authorization)
+    user_id = profile["user_id"]
+
+    import queue_worker as qw
+    jobs = await qw.get_user_active_jobs(user_id)
+    queue_info = await qw.get_queue_info()
+
+    return {
+        "jobs": jobs,
+        "queue_info": {
+            "total_queued": queue_info.get("queued", 0),
+            "total_processing": queue_info.get("processing", 0),
+        },
+    }
+
+
 @creator_router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str, authorization: Optional[str] = Header(None)):
     """Poll the status of a queued generation job (regeneration etc)."""
@@ -1529,7 +1560,6 @@ async def get_job_status(job_id: str, authorization: Optional[str] = Header(None
         raise HTTPException(status_code=404, detail="Job not found")
 
     return status
-
 
 
 # ============ PLATFORM SETTINGS (PUBLIC) ============
@@ -1651,7 +1681,7 @@ async def generate_narration_audio(episode_id: str, body: NarrationGenerateReque
         "job_id": job_id,
         "episode_id": episode_id,
         "user_id": user_id,
-        "status": "pending",
+        "status": "queued",
         "total_dialogues": len(dialogues_data),
         "completed_dialogues": 0,
         "batches_total": 0,
@@ -1660,13 +1690,21 @@ async def generate_narration_audio(episode_id: str, body: NarrationGenerateReque
         "error_message": "",
     })
 
-    # Start background generation
+    # Submit to global generation queue (processed sequentially)
     story_id = ep.get("story_id", "")
-    asyncio.create_task(sc.run_generation_job(job_id, episode_id, user_id, dialogues_data, voice_map, story_id=story_id))
+    import queue_worker as qw
+    queue_id = await qw.submit_job(user_id, "narration_batch", {
+        "script_job_id": job_id,
+        "episode_id": episode_id,
+        "story_id": story_id,
+        "dialogues_data": dialogues_data,
+        "voice_map": voice_map,
+    })
 
     return {
         "job_id": job_id,
-        "status": "pending",
+        "queue_id": queue_id,
+        "status": "queued",
         "total_parts": len(body.parts),
         "total_dialogues": len(dialogues_data),
     }
