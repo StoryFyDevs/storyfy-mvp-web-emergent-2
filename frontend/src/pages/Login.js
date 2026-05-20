@@ -144,7 +144,18 @@ function Login() {
             </div>
 
             <div>
-              <Label htmlFor="password" className="text-white">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password" className="text-white">Password</Label>
+                {!isAdmin && (
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors"
+                    data-testid="forgot-password-link"
+                  >
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
               <Input
                 id="password"
                 type="password"

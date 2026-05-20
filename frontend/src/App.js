@@ -4,6 +4,8 @@ import { API_BASE } from './lib/config';
 import LoadingScreen from './components/LoadingScreen';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import StudioLayout from './pages/StudioLayout';
 import ScriptEditor from './pages/ScriptEditor';
@@ -35,6 +37,8 @@ function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/studio/:storyId" element={<ProtectedRoute><StudioLayout /></ProtectedRoute>}>

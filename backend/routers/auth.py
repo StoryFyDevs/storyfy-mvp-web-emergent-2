@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Header, Response
+from fastapi import APIRouter, HTTPException, Header, Response, Request
 from typing import Optional
 from datetime import datetime, timezone
 import logging
@@ -6,6 +6,7 @@ import logging
 import supabase_db as ndb
 import auth_service
 from models import UserSignup, UserLogin, User, UserPublic, AdminLogin
+from pydantic import BaseModel
 
 logger = logging.getLogger("auth")
 ADMIN_EMAIL = "admin@admin.com"
@@ -166,3 +167,62 @@ async def oauth_sync(authorization: Optional[str] = Header(None)):
 async def process_session():
     """Legacy session endpoint - no longer supported."""
     raise HTTPException(status_code=410, detail="Use email/password or Google OAuth via Supabase")
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+    redirect_url: str = ""
+
+
+class ResetPasswordRequest(BaseModel):
+    access_token: str
+    refresh_token: str
+    new_password: str
+
+
+@auth_router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
+    """Send password reset email via Supabase Auth."""
+    email = body.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    # Determine redirect URL — frontend sends its origin, fallback to Referer or env
+    redirect_to = body.redirect_url.rstrip("/") + "/reset-password" if body.redirect_url else ""
+    if not redirect_to:
+        origin = request.headers.get("origin", "")
+        if origin:
+            redirect_to = origin.rstrip("/") + "/reset-password"
+
+    try:
+        client = auth_service._get_client()
+        options = {"redirect_to": redirect_to} if redirect_to else {}
+        client.auth.reset_password_for_email(email, options)
+    except Exception as e:
+        logger.error(f"Forgot password error: {e}")
+        # Don't reveal whether email exists
+        pass
+
+    # Always return success to prevent user enumeration
+    return {"message": "If an account exists for that email, a reset link has been sent."}
+
+
+@auth_router.post("/reset-password")
+async def reset_password(body: ResetPasswordRequest):
+    """Update password using tokens from Supabase reset callback."""
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    try:
+        client = auth_service._get_client()
+        # Set session from the tokens provided by the reset callback
+        client.auth.set_session(body.access_token, body.refresh_token)
+        # Update the password
+        client.auth.update_user({"password": body.new_password})
+        return {"message": "Password updated successfully"}
+    except Exception as e:
+        msg = str(e)
+        logger.error(f"Reset password error: {msg}")
+        if "expired" in msg.lower() or "invalid" in msg.lower():
+            raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+        raise HTTPException(status_code=400, detail="Failed to reset password. Please try again.")
