@@ -674,7 +674,125 @@ async def get_episode_clips(episode_id: str, authorization: Optional[str] = Head
     return {"clips": result_clips, "episode_id": episode_id}
 
 
-# ============ CHARACTERS ============
+# ============ GENERATION VERSIONS (Review Workflow) ============
+
+@creator_router.get("/episodes/{episode_id}/versions")
+async def get_episode_versions(episode_id: str, authorization: Optional[str] = Header(None)):
+    """Return ALL clips (active + inactive) for an episode, grouped by dialogue_index.
+    This powers the version review UI in the Script Editor."""
+    profile = await _auth(authorization)
+
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    # Fetch ALL clips for this episode (including inactive, excluding pending_deletion)
+    all_clips = await ndb.find_many(
+        "audio_clips",
+        {"episode_id": episode_id},
+        order_by={"dialogue_index": "asc"},
+        limit=500,
+    )
+
+    # Filter out pending deletions
+    all_clips = [c for c in all_clips if not c.get("pending_deletion")]
+
+    if not all_clips:
+        return {"versions": {}, "episode_id": episode_id}
+
+    # Enrich with duration from audio_cache
+    cache_keys = list(set(c.get("cache_key", "") for c in all_clips if c.get("cache_key")))
+    cache_map = {}
+    for ck in cache_keys:
+        entry = await ndb.find_one("audio_cache", {"cache_key": ck})
+        if entry:
+            cache_map[ck] = entry
+
+    # Group by dialogue_index
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    for clip in all_clips:
+        idx = clip.get("dialogue_index", 0)
+        ck = clip.get("cache_key", "")
+        cache_entry = cache_map.get(ck, {})
+
+        grouped[idx].append({
+            "clip_id": clip.get("file_id", ""),
+            "audio_url": clip.get("audio_url", ""),
+            "voice_id": clip.get("voice_id", ""),
+            "duration_seconds": cache_entry.get("duration_seconds", 0),
+            "is_selected": clip.get("is_active", False),
+            "created_at": str(clip.get("created_at", "")),
+        })
+
+    # Sort each group by created_at descending (newest first)
+    for idx in grouped:
+        grouped[idx].sort(key=lambda v: v["created_at"], reverse=True)
+
+    # Add friendly labels
+    versions = {}
+    for idx, clips in grouped.items():
+        labeled = []
+        for i, clip in enumerate(clips):
+            if clip["is_selected"]:
+                label = "Selected for Episode"
+            elif i == 0:
+                label = "Latest"
+            else:
+                label = "Previous Version"
+            labeled.append({**clip, "label": label})
+        versions[str(idx)] = labeled
+
+    logger.info(f"VERSIONS_LOADED episode={episode_id} parts={len(versions)}")
+    return {"versions": versions, "episode_id": episode_id}
+
+
+@creator_router.post("/episodes/{episode_id}/versions/{clip_id}/select")
+async def select_version(episode_id: str, clip_id: str, authorization: Optional[str] = Header(None)):
+    """Select a specific version for a Part. Deactivates other versions for same dialogue_index."""
+    profile = await _auth(authorization)
+
+    # Find the clip to select
+    clip = await ndb.find_one("audio_clips", {"file_id": clip_id, "episode_id": episode_id})
+    if not clip:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    dialogue_index = clip.get("dialogue_index", 0)
+
+    # Deactivate all clips for this dialogue_index
+    all_for_idx = await ndb.find_many("audio_clips", {
+        "episode_id": episode_id,
+        "dialogue_index": dialogue_index,
+    })
+    for c in all_for_idx:
+        if c.get("is_active") and c.get("file_id") != clip_id:
+            await ndb.update_rows("audio_clips", {"file_id": c["file_id"]}, {
+                "is_active": False,
+            })
+
+    # Activate the selected clip
+    await ndb.update_rows("audio_clips", {"file_id": clip_id}, {
+        "is_active": True,
+        "pending_deletion": False,
+        "last_used_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    logger.info(f"VERSION_SELECTED clip={clip_id} episode={episode_id} idx={dialogue_index}")
+    return {"message": "Version selected", "clip_id": clip_id, "dialogue_index": dialogue_index}
+
+
+@creator_router.post("/episodes/{episode_id}/versions/{clip_id}/deselect")
+async def deselect_version(episode_id: str, clip_id: str, authorization: Optional[str] = Header(None)):
+    """Deselect a version (remove from Audio Studio) without deleting it."""
+    profile = await _auth(authorization)
+
+    clip = await ndb.find_one("audio_clips", {"file_id": clip_id, "episode_id": episode_id})
+    if not clip:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    await ndb.update_rows("audio_clips", {"file_id": clip_id}, {"is_active": False})
+    logger.info(f"VERSION_DESELECTED clip={clip_id} episode={episode_id}")
+    return {"message": "Version deselected", "clip_id": clip_id}
 
 @creator_router.post("/characters")
 async def create_character(char_data: CharacterCreate, authorization: Optional[str] = Header(None)):

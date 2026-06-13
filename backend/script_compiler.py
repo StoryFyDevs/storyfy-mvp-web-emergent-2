@@ -1139,34 +1139,36 @@ async def register_clip(
     episode_id: str, story_id: str, dialogue_index: int,
     voice_id: str, cache_key: str, audio_url: str,
 ):
-    """Register a generated clip in audio_clips table.
+    """Register a generated clip as a new version in audio_clips table.
 
-    1. Mark any existing active clip for the same dialogue_index as inactive
-    2. Insert the new clip as active
+    Version management workflow:
+    1. If no clips exist for this dialogue_index → auto-select (is_active=True)
+    2. If clips already exist → create as unselected (is_active=False)
+       Creator must manually select via the review UI.
+    3. Enforce max 5 versions per dialogue_index (delete oldest unselected).
     """
-    # Deactivate old clips for this dialogue position
-    old_clips = await ndb.find_many("audio_clips", {
+    MAX_VERSIONS_PER_PART = 5
+
+    # Check existing clips for this dialogue position
+    existing = await ndb.find_many("audio_clips", {
         "episode_id": episode_id,
         "dialogue_index": dialogue_index,
-        "is_active": True,
-    })
-    for oc in old_clips:
-        if oc.get("cache_key") == cache_key:
-            # Same version — just update last_used_at, no need to create a new row
+    }, order_by={"created_at": "asc"}, limit=100)
+
+    # Check if same version already exists (cache hit)
+    for oc in existing:
+        if oc.get("cache_key") == cache_key and not oc.get("pending_deletion"):
             logger.info(f"CACHE_HIT clip for dialogue_index={dialogue_index} (same version_hash)")
             await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
                 "last_used_at": datetime.now(timezone.utc).isoformat(),
             })
             return oc.get("file_id")
-        else:
-            logger.info(f"CLIP_MARKED_INACTIVE file_id={oc.get('file_id')} dialogue_index={dialogue_index}")
-            await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
-                "is_active": False,
-                "pending_deletion": True,
-                "pending_deletion_at": datetime.now(timezone.utc).isoformat(),
-            })
 
-    # Insert new active clip
+    # Determine if this should be auto-selected
+    has_active = any(c.get("is_active") and not c.get("pending_deletion") for c in existing)
+    auto_select = not has_active  # First version auto-selects
+
+    # Insert new clip
     file_id = f"clip_{uuid.uuid4().hex[:12]}"
     await ndb.insert_one("audio_clips", {
         "file_id": file_id,
@@ -1177,9 +1179,29 @@ async def register_clip(
         "voice_id": voice_id,
         "cache_key": cache_key,
         "is_cached": True,
-        "is_active": True,
+        "is_active": auto_select,
     })
-    logger.info(f"CLIP_CREATED file_id={file_id} episode={episode_id} dialogue_index={dialogue_index}")
+    label = "AUTO-SELECTED" if auto_select else "UNSELECTED"
+    logger.info(f"CLIP_CREATED [{label}] file_id={file_id} episode={episode_id} idx={dialogue_index}")
+
+    # Enforce version limit — delete oldest unselected if > MAX_VERSIONS_PER_PART
+    non_deleted = [c for c in existing if not c.get("pending_deletion")]
+    total_versions = len(non_deleted) + 1  # +1 for the new clip
+
+    if total_versions > MAX_VERSIONS_PER_PART:
+        # Find oldest unselected clips to delete
+        unselected = [c for c in non_deleted if not c.get("is_active")]
+        unselected.sort(key=lambda c: str(c.get("created_at", "")))  # oldest first
+        to_delete = total_versions - MAX_VERSIONS_PER_PART
+
+        for i in range(min(to_delete, len(unselected))):
+            clip = unselected[i]
+            logger.info(f"VERSION_LIMIT: Deleting oldest unselected clip {clip.get('file_id')} idx={dialogue_index}")
+            await ndb.update_rows("audio_clips", {"file_id": clip["file_id"]}, {
+                "pending_deletion": True,
+                "pending_deletion_at": datetime.now(timezone.utc).isoformat(),
+            })
+
     return file_id
 
 

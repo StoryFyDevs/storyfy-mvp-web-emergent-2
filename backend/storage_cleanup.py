@@ -310,15 +310,25 @@ async def cleanup_unused_cached_clips(max_age_days: int = STALE_CACHE_DAYS) -> d
 
 
 async def cleanup_inactive_clips() -> dict:
-    """Soft-delete clips already marked inactive and not yet queued for deletion."""
+    """Soft-delete unselected version clips older than 30 days.
+    
+    IMPORTANT: Inactive clips are now 'unselected versions' in the review workflow.
+    They should NOT be immediately deleted — only after 30 days of being unselected.
+    """
+    VERSION_RETENTION_DAYS = 30
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=VERSION_RETENTION_DAYS)).isoformat()
     try:
         clips = await ndb.find_many(
             "audio_clips",
-            {"is_active": {"_eq": False}, "pending_deletion": {"_eq": False}},
+            {
+                "is_active": {"_eq": False},
+                "pending_deletion": {"_eq": False},
+                "created_at": {"_lt": cutoff},
+            },
             limit=500,
         )
         result = await _soft_delete_clips(clips)
-        logger.info(f"cleanup_inactive_clips: {result}")
+        logger.info(f"cleanup_inactive_clips (30-day retention): {result}")
         return result
     except Exception as e:
         logger.error(f"cleanup_inactive_clips error: {e}")

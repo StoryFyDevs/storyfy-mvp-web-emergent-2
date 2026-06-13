@@ -64,6 +64,9 @@ function ScriptEditor() {
   const [genProgress, setGenProgress] = useState({ completed: 0, total: 0, status: '' });
   const pollRef = useRef(null);
 
+  // Version review state
+  const [partVersions, setPartVersions] = useState({});
+
   // Per-dialogue regeneration
   const [regenLoading, setRegenLoading] = useState(new Set());
 
@@ -95,6 +98,7 @@ function ScriptEditor() {
   useEffect(() => {
     if (selectedEpisode) {
       loadScriptData(selectedEpisode.episode_id);
+      fetchVersions(selectedEpisode.episode_id);
     }
   }, [selectedEpisode?.episode_id, characters.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -222,6 +226,30 @@ function ScriptEditor() {
   };
 
   const getPartCharCount = (part) => (part.text?.length || 0) + (part.director_notes?.length || 0);
+
+  // ===== VERSION MANAGEMENT =====
+  const fetchVersions = async (episodeId) => {
+    try {
+      const res = await fetch(`${base}/api/episodes/${episodeId}/versions`, { headers: authHeaders });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPartVersions(data.versions || {});
+    } catch { /* silent */ }
+  };
+
+  const handleSelectVersion = async (clipId) => {
+    if (!selectedEpisode) return;
+    try {
+      const res = await fetch(`${base}/api/episodes/${selectedEpisode.episode_id}/versions/${clipId}/select`, {
+        method: 'POST', headers: authHeaders,
+      });
+      if (!res.ok) throw new Error('Failed to select version');
+      toast.success('Version selected for episode');
+      fetchVersions(selectedEpisode.episode_id);
+    } catch (err) {
+      toast.error(err.message || 'Failed to select version');
+    }
+  };
 
   // ===== NARRATION GENERATION =====
   const handleGenerateNarration = async () => {
@@ -451,8 +479,10 @@ function ScriptEditor() {
           if (data.status === 'failed') {
             toast.error(data.error_message || 'Generation failed');
           } else {
-            toast.success(`Audio generated! ${data.completed_dialogues} clip${data.completed_dialogues !== 1 ? 's' : ''} ready.`);
+            toast.success(`Audio generated! ${data.completed_dialogues} clip${data.completed_dialogues !== 1 ? 's' : ''} ready for review.`);
           }
+          // Refresh versions so the new generation appears in the review UI
+          if (selectedEpisode) fetchVersions(selectedEpisode.episode_id);
         }
       } catch { /* ignore */ }
     }, 2000);
@@ -710,6 +740,10 @@ function ScriptEditor() {
                       charCount={getPartCharCount(part)}
                       charLimit={NARRATION_CHAR_LIMIT}
                       isGenerating={generating}
+                      versions={partVersions[idx] || []}
+                      onSelectVersion={handleSelectVersion}
+                      base={base}
+                      authHeaders={authHeaders}
                     />
                   ))}
 
@@ -816,10 +850,11 @@ function ScriptEditor() {
 
 // ===== NARRATION PART BLOCK =====
 
-function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charCount, charLimit, isGenerating }) {
+function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charCount, charLimit, isGenerating, versions, onSelectVersion, base, authHeaders }) {
   const pct = charLimit > 0 ? (charCount / charLimit) * 100 : 0;
   const isNearLimit = pct > 80;
   const isOverLimit = charCount > charLimit;
+  const [expandVersions, setExpandVersions] = React.useState(false);
 
   return (
     <div className={`bg-charcoal rounded-lg border transition-all ${isOverLimit ? 'border-red-500/50' : isNearLimit ? 'border-amber-500/40' : 'border-white/10'}`} data-testid={`narration-part-${index}`}>
@@ -827,9 +862,17 @@ function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charC
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
         <div className="flex items-center gap-2">
           <span className="text-neon-cyan font-mono text-xs font-bold bg-neon-cyan/10 px-2 py-0.5 rounded">Part {part.part_number}</span>
+          {versions.length > 0 && (
+            <span className="text-xs text-text-secondary">
+              {versions.filter(v => v.is_selected).length > 0 ? (
+                <span className="text-signal-green">Audio selected</span>
+              ) : (
+                <span className="text-warm-gold">{versions.length} version{versions.length !== 1 ? 's' : ''} — none selected</span>
+              )}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Character Counter */}
           <span className={`text-xs font-mono ${isOverLimit ? 'text-red-400' : isNearLimit ? 'text-amber-400' : 'text-text-secondary'}`} data-testid={`char-counter-${index}`}>
             {charCount.toLocaleString()} / {charLimit.toLocaleString()}
           </span>
@@ -898,6 +941,39 @@ function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charC
             <p className="text-red-300/70 text-xs mt-2 leading-relaxed">
               Please break it into smaller parts or reduce your text / Director's Notes. Each section supports up to {charLimit.toLocaleString()} characters (including notes).
             </p>
+          </div>
+        )}
+
+        {/* ===== GENERATED VERSIONS ===== */}
+        {versions.length > 0 && (
+          <div className="border-t border-white/5 pt-4 mt-2">
+            <button
+              onClick={() => setExpandVersions(!expandVersions)}
+              className="flex items-center gap-2 text-sm text-text-secondary hover:text-white transition-colors w-full"
+              data-testid={`toggle-versions-${index}`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-neon-cyan" />
+              <span className="font-medium">Generated Versions</span>
+              <span className="text-xs bg-slate px-1.5 py-0.5 rounded font-mono">{versions.length}</span>
+              {expandVersions ? <ChevronUp className="w-3.5 h-3.5 ml-auto" /> : <ChevronDown className="w-3.5 h-3.5 ml-auto" />}
+            </button>
+
+            {expandVersions && (
+              <div className="mt-3 space-y-2" data-testid={`versions-list-${index}`}>
+                {versions.map((v) => (
+                  <VersionRow
+                    key={v.clip_id}
+                    version={v}
+                    onSelect={() => onSelectVersion(v.clip_id)}
+                    base={base}
+                    authHeaders={authHeaders}
+                  />
+                ))}
+                <p className="text-xs text-text-secondary/60 mt-2 italic">
+                  Only your latest versions are kept. Older unused versions may be removed automatically.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1011,5 +1087,134 @@ function DialogueBlock({ dialogue, index, characters, voices, onUpdate, onRemove
     </div>
   );
 }
+
+
+// ===== VERSION ROW COMPONENT =====
+
+function VersionRow({ version, onSelect, base, authHeaders }) {
+  const [playing, setPlaying] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const audioRef = React.useRef(null);
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 60000) return 'Just now';
+      if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+      if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+      if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch { return ''; }
+  };
+
+  const formatDuration = (s) => {
+    if (!s) return '--:--';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const togglePlay = async () => {
+    if (playing) {
+      audioRef.current?.pause();
+      setPlaying(false);
+      return;
+    }
+
+    if (!audioRef.current) {
+      setLoading(true);
+      const audio = new Audio(`${base}/api/audio/stream-file/${version.audio_url}?t=${Date.now()}`);
+      audio.onended = () => setPlaying(false);
+      audio.onerror = () => { setPlaying(false); setLoading(false); };
+      audio.oncanplay = () => setLoading(false);
+      audioRef.current = audio;
+    }
+
+    try {
+      await audioRef.current.play();
+      setPlaying(true);
+    } catch {
+      setPlaying(false);
+    }
+  };
+
+  // Clean up audio on unmount
+  React.useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  const isSelected = version.is_selected;
+  const label = version.label;
+
+  return (
+    <div
+      className={`rounded-lg p-3 flex items-center gap-3 transition-all ${
+        isSelected
+          ? 'bg-signal-green/8 border border-signal-green/25'
+          : 'bg-slate/40 border border-white/5 hover:border-white/15'
+      }`}
+      data-testid={`version-row-${version.clip_id}`}
+    >
+      {/* Play Button */}
+      <button
+        onClick={togglePlay}
+        className={`w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center transition-all ${
+          playing ? 'bg-neon-cyan text-obsidian' : 'bg-white/10 text-white hover:bg-white/20'
+        }`}
+        data-testid={`play-version-${version.clip_id}`}
+      >
+        {loading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : playing ? (
+          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
+        ) : (
+          <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current"><polygon points="5,3 19,12 5,21" /></svg>
+        )}
+      </button>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          {label === 'Selected for Episode' && (
+            <span className="text-xs font-medium text-signal-green flex items-center gap-1">
+              <svg viewBox="0 0 16 16" className="w-3 h-3 fill-current"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+              Selected for Episode
+            </span>
+          )}
+          {label === 'Latest' && (
+            <span className="text-xs font-medium text-neon-cyan">Latest</span>
+          )}
+          {label === 'Previous Version' && (
+            <span className="text-xs text-text-secondary">Previous Version</span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mt-0.5">
+          <span className="text-xs font-mono text-text-secondary">{formatDuration(version.duration_seconds)}</span>
+          <span className="text-xs text-text-secondary/60">{formatDate(version.created_at)}</span>
+        </div>
+      </div>
+
+      {/* Select Button */}
+      {!isSelected && (
+        <button
+          onClick={onSelect}
+          className="text-xs px-3 py-1.5 rounded bg-white/8 text-white hover:bg-neon-cyan/15 hover:text-neon-cyan border border-white/10 hover:border-neon-cyan/30 transition-all flex-shrink-0"
+          data-testid={`select-version-${version.clip_id}`}
+        >
+          Use This Version
+        </button>
+      )}
+    </div>
+  );
+}
+
 
 export default ScriptEditor;
