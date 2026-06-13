@@ -15,7 +15,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://audio-studio-fix.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://generation-workflow.preview.emergentagent.com').rstrip('/')
 
 # Test credentials from test_credentials.md
 CREATOR_EMAIL = "harshil.zalavadiya02@gmail.com"
@@ -212,7 +212,7 @@ class TestPasswordReset:
             f"{BASE_URL}/api/auth/forgot-password",
             json={
                 "email": "test@example.com",
-                "redirect_url": "https://audio-studio-fix.preview.emergentagent.com"
+                "redirect_url": "https://generation-workflow.preview.emergentagent.com"
             }
         )
         # Should always return 200 to prevent user enumeration

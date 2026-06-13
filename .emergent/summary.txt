@@ -1,140 +1,142 @@
 <analysis>**original_problem_statement**: 
-The user requested several major architectural changes and bug fixes to the StoryFy platform:
-1. Implement a Global Generation Queue to handle 503 errors and rate limits fairly.
-2. Fix deployment blockers.
-3. Fix a 500 error on story creation.
-4. Build a comprehensive Credit & Access Control system where new creators default to disabled access, controlled via an admin switch.
-5. Rebuild the Script → Audio → Studio synchronization system to use deterministic backend fetching (API-based) rather than fragile local storage.
-6. Pivot the platform to a Narration-first workflow, making the Script Editor default to a 15k-character Narration mode with chunky capabilities, hiding Dialogue Mode behind an admin toggle to save on Gemini API limits.
+1. Fix Gemini 2.5 Pro TTS 403 API Error by routing requests to the proper Google Vertex AI  endpoint using a Service Account JSON.
+2. Implement a system-wide audio generation FIFO queue with admin rate-limits and persistent frontend UI tracking.
+3. Add a Supabase Password Reset flow (Forgot Password -> Email Link -> Reset Password).
+4. Implement a Generation Review Workflow for Narration parts, enabling creators to generate multiple versions (up to 5 per part), review them, and explicitly Select a version to be sent to the Audio Studio.
 
 **User's preferred language**: English
-(INSTRUCTION: Respond in English only)
+(INSTRUCT NEXT AGENT: Respond in English only)
 
-**what currently exists?**: 
-StoryFy is a full-stack storytelling application (React + FastAPI + Supabase). In this session, a robust queue-based audio generation pipeline was implemented to eliminate API rate limits. Additionally, a new master credit and access control system restricts new creators until an admin approves them. The Audio Studio timeline now loads clips deterministically from the backend using an active/inactive lifecycle, fixing previous synchronization issues. The platform is currently being overhauled to support a Narration-first workflow.
+**what currently exists?** 
+StoryFy is a full-stack storyteller app (React + FastAPI + Supabase). In this session, the backend was overhauled to use Google Vertex AI () with OAuth2 Bearer token auth for the Gemini TTS model. A centralized FIFO job queue was added () to manage API rate limits safely. Supabase-powered Password Reset pages were added. A major feature, the Generation Review Workflow, was successfully integrated: users can now generate multiple audio versions per script part, compare them, and explicitly mark one as Selected () before it appears in the Audio Studio. 
 
-**Last working item**:
-- **Last item agent was working**: Investigating routing and component structure to implement the Narration-first workflow and reorder the main application tabs (Characters -> Script Editor -> Audio Studio). The agent just checked  and  routing before the context window ended.
-- **Status**: IN PROGRESS
-- **Agent Testing Done**: N
-- **Which testing method agent to use?** Frontend testing agent and manual testing by screenshot tool.
-- **User Testing Done**: N
+**Last working item**: 
+    - Last item agent was working: Building and testing the Generation Review Workflow (storing multiple generation versions, selection UI, preventing auto-import to Audio Studio, and updating storage 30-day cleanup rules).
+    - Status: USER VERIFICATION PENDING
+    - Agent Testing Done: Y
+    - Which testing method agent to use?: NA (testing_agent_v3_fork passed at 94% backend, 100% frontend).
+    - User Testing Done: N
 
 **All Pending/In progress Issue list**:
-Issue 1: ESLint  warnings
-- Attempted fixes: None. Deferred to prioritize feature stability.
-- Next debug checklist: Run yarn run v1.22.22
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in  and address missing dependencies in  and  hooks (e.g., in , ).
-- Why fix this issue and what will be achieved with the fix? Prevents subtle state bugs caused by stale closures.
-- Status: NOT STARTED
-- Is recurring issue? Y
-- Should Test frontend/backend/both after fix? frontend
-- Blocked on other issue: None
+  Issue 1: Admin Dashboard & Analytics Failing to Load
+     - Attempted fixes: None in this session (deferred to focus on large core features).
+     - Next debug checklist: Check  network fetch logic, ensure token retrieval is robust, and check  analytics routes for exceptions causing .
+     - Why fix this issue and what will be achieved with the fix? Admins cannot view platform metrics.
+     - Status: NOT STARTED
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? both
+     - Blocked on other issue: None
 
-**In progress Task List**:
-Task 1: Implement Narration-first workflow & Reorder UI Tabs (P0)
-- Where to resume: Modify frontend routing/layout to reorder tabs (1. Characters, 2. Script Editor, 3. Audio Studio). Then overhaul  to include two modes: Narration Mode (default, 15k char limit including notes, chunking capability + Add Next Part) and Dialogue Mode (advanced). Add  global toggle in the Admin panel to enable/disable the Dialogue Mode UI. Update the backend to accept and process the new Narration Mode chunks (combining text + director notes into a single Gemini request per chunk).
-- What will be achieved with this? Massively reduces Gemini API usage by preventing highly-fragmented dialogue generation, simplifying the UX for non-technical users.
-- Status: IN PROGRESS
-- Should Test frontend/backend/both after fix? both
-- Blocked on something: None
+  Issue 2: ESLint  warnings
+     - Attempted fixes: None. Deferred to prioritize feature stability.
+     - Next debug checklist: Run yarn run v1.22.22
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command. in  and fix missing dependency arrays in hooks in , , , and .
+     - Why fix this issue and what will be achieved with the fix? Prevents subtle React state/closure bugs.
+     - Status: NOT STARTED
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? frontend
+     - Blocked on other issue: None
 
-**Upcoming and Future Tasks**:
-Upcoming Tasks:
-- P1: Add Zoom System to Audio Studio (Controls to adjust  on the timeline).
-- P2: Add Zoom-to-Fit button for Audio Studio.
+**In progress Task List**: 
+None.
 
-Future Tasks:
-- P2: Clean up legacy unused  (MongoDB logic).
-- P3: Performance Monitor Overlay (Developer view for FPS).
-- P3: Deepgram + ElevenLabs integration.
-- P3: Google OAuth & PWA implementation.
+**Upcoming and Future Tasks**
+    Upcoming Tasks:
+    - P1: Add Zoom System to Audio Studio (Controls to adjust  on the timeline).
+    - P1: Add Zoom-to-Fit button for Audio Studio.
+    
+    Future Tasks:
+    - P2: Clean up legacy unused  (MongoDB logic).
+    - P3: Performance Monitor Overlay (Developer view for FPS).
+    - P3: Deepgram + ElevenLabs integration.
+    - P3: Google OAuth & PWA implementation.
 
-**Completed work in this session**:
-- Global Generation Queue implementation (, ) (DONE)
-- Fix Deployment blockers (, N+1 queries, ENV vars) (DONE)
-- Fix 500 error on  (fixed PostgreSQL array formatting for ) (DONE)
-- Credit & Access Control System with Admin Master Switch () (DONE)
-- Script → Audio → Studio Sync overhaul (Added , replaced  syncing with DB truth) (DONE)
-- Supabase RLS (Row Level Security) enabled via raw SQL (DONE)
+**Completed work in this session**
+- Switched Gemini 2.5 Pro TTS to Vertex AI  via Service Account (, ) (DONE)
+- System-Wide Generation Queue & Persistent Tracking UI (, ) (DONE)
+- Password Reset Flow (, , ) (DONE)
+- Generation Review Workflow & Version Selection UI (, ) (DONE)
+- Updated Audio Cleanup 30-day rules () (DONE)
 
-**Earlier issues found/mentioned but not fixed**:
-- Issue 1:  warnings in React frontend.
+**Earlier issues found/mentioned but not fixed**
+   Issue 1: Admin API endpoints failing ()
+   - Debug checklist: Inspect  and the corresponding React dashboard frontend fetching mechanism.
+   - Why to solve this issue and what will be achieved with this? Allows admins to monitor application usage.
+   - Should Test frontend/backend/both after fix: both
+   - Is recurring issue? Y
 
-**Known issue recurrence from previous fork**:
-- Issue recurrence in previous fork: ESLint warnings
-- Recurrence count: 3
-- Status: NOT STARTED
+**Known issue recurrence from previous fork**
+  - Issue recurrence in previous fork: ESLint  warnings.
+  - Recurrence count: 5
+  - Status: NOT STARTED
 
-**Code Architecture**:
+**Code Architecture**
 
 
-**Key Technical Concepts**:
-- Frontend: React, TailwindCSS, Shadcn, Web Audio API,  for timeline rendering.
-- Backend: FastAPI, Supabase (PostgreSQL), Python asyncio.
-- DB Access: Uses Supabase Data API (PostgREST) via  (bypasses RLS).
-- Job Queues: In-memory async worker with round-robin fair scheduling and rate limiting.
+**Key Technical Concepts**
+- Frontend: React, TailwindCSS, Shadcn, Web Audio API.
+- Backend: FastAPI, Supabase (PostgreSQL + Object Storage), asyncio.
+- Integrations: Google Vertex AI (using service account credentials for TTS instead of global API keys).
 
-**key DB schema**:
-- : {clip_id, dialogue_id, episode_id, dialogue_index, version_hash, audio_url, is_active}
-- : {user_id, generation_credits, audition_credits, generation_status}
-- : {job_id, user_id, episode_id, status}
+**key DB schema**
+  - : {clip_id, dialogue_id, episode_id, dialogue_index, version_hash, audio_url, is_active (flag for selected version), pending_deletion}
+  - : {id, queue_id, user_id, status, request_data}
 
-**changes in tech stack**:
-- Confirmed PostgreSQL (via Supabase) as the primary database. Removed all reliance on MongoDB.
+**changes in tech stack**
+  - Authentication for Gemini 2.5 Pro shifted from a basic API key to a Google Cloud Service Account JSON mapping to Vertex AI ().
 
-**All files of reference**:
-- : (Created) Handles fair-queue scheduling for TTS.
-- : Updated to write deterministically to  table.
-- : Houses the new  endpoint.
-- : Updated with master toggle for user generation access.
-- : Refactored to drop localStorage sync and load directly from backend clips API.
-- : Requires overhaul in the next step to add Narration Mode.
+**All files of reference**
+  - : Created to generate dynamic OAuth2 Bearer tokens from the Service Account JSON.
+  - : Modified to handle FIFO queues securely with rate limits.
+  -  & : Created to persist queue generation UI across tabs.
+  -  & : Created for Supabase auth recovery.
+  - : Massively refactored to support the Version Review UI (generating, fetching, and selecting versions per Part).
+  - : Added endpoints for , , and .
+  - : Created to permanently document standard test/admin credentials.
 
-**Areas that need refactoring**:
-- : Legacy MongoDB file. It is currently entirely unused and can be safely deleted in future refactors to avoid deployment warnings.
+**Areas that need refactoring**
+  - : Complete file is obsolete (legacy MongoDB) and creates deployment noise.
 
-**key api endpoints**:
-- : Fetches all active clips sorted by .
-- : Master toggle to enable/disable user audio generation.
+**key api endpoints**
+  -  (Vertex AI TTS endpoint).
+  - : Fetches all audio versions generated for a script.
+  - : Explicitly marks a version as  to populate Audio Studio.
 
-**Critical Info for New Agent**:
-- **Authentication**: Backend calls to Supabase use  directly, meaning RLS policies in Supabase do not block backend operations.
-- **Audio Clip Sync**: DO NOT use  for syncing audio clips to the Audio Studio. The system was just rebuilt to strictly use the  endpoint and the  flag in the DB.
-- **Next Task Priority**: You MUST immediately implement the Narration-first workflow as detailed in the user's last prompt. This includes UI tab reordering, adding Narration Mode (with 15k char limits and chunking) vs Dialogue Mode (behind an admin toggle) inside .
+**Critical Info for New Agent**
+  - **Production Environment Notice**: The user has deployed this app to a live production domain. Always clarify with the user if they are seeing bugs on the *Preview Environment* (which you can test directly) or the *Production Environment*. Do NOT proactively bring up the production environment unless the user mentions it.
+  - **Vertex AI Auth**: The Gemini TTS calls no longer use . They rely on  token auth generated in  via the uploaded Service Account JSON.
+  - **Generation Review Workflow**: Audio Studio ONLY loads clips where . New generations start as  until explicitly selected by the creator in the Script Editor.  has been updated to keep unselected versions for up to 30 days before deletion.
 
-**documents and test reports created in this job**:
-- 
--  (Queue testing)
--  (Clip Sync testing)
+**documents and test reports created in this job**
+  -  (Updated)
+  -  (Created)
+  -  (Queue System tests)
+  -  (Version Workflow & Auth tests)
 
-**Last 10 User Messages and any pending HUMAN messages**:
-1. (User) Requested implementing a Global, rate-aware fair queue system. (Completed)
-2. (User) Requested Deployer Agent Health check. (Completed)
-3. (User) Reported 500 error on . (Completed)
-4. (User) Asked how to enable audio generation for new accounts. (Answered)
-5. (User) Requested comprehensive Credit and Access Control System with an Admin Master Switch. (Completed)
-6. (User) Requested renaming Audio Access to Audio Gen Access. (Completed)
-7. (User) Requested rebuilding the Script → Audio → Studio Sync system to be deterministic instead of local storage. (Completed)
-8. (User) Provided 20 Supabase RLS linting errors. (Completed via SQL instructions)
-9. (User) Requested massive UX overhaul: Narration-first workflow (15k char limit, + Add Next Part chunking), reordering tabs (Characters -> Script -> Audio Studio), and hiding Dialogue Mode behind an Admin global toggle. (Pending - IN PROGRESS).
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. (User) Asked what the test user credentials were.
+ 2. (User) Asked to fix authentication including password reset.
+ 3. (User) Confirmed Yes please do that to add password reset.
+ 4. (System Notif / User request) Alerted about production vs preview environment split. Provided a massive PRD logic dump to implement a Generation Review Workflow (Version management without breaking existing Audio Studio references).
 
 **Project Health Check:**
-- Broken: None
-- Mocked: None
+- Broken: Admin dashboard analytics routes ().
+- Mocked: None.
 
-**3rd Party Integrations**:
-- Gemini (TTS Generation) - Uses Emergent LLM Key
+**3rd Party Integrations** 
+- Google Vertex AI API () — requires User Service Account JSON.
+- Supabase (PostgreSQL, Storage, Auth) — uses standard env keys.
 
-**Testing status**:
-- Testing agent used after significant changes: YES (Used for Queue System and Audio Sync System).
-- Troubleshoot agent used after agent stuck in loop: NO
-- Test files created: , 
-- Known regressions: None
+**Testing status**
+  - Testing agent used after significant changes: YES (For both the Queue system and Version review system).
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: None
+  - Known regressions: None 
 
-**Credentials to test flow**:
-- User:  / 
-- Admin:  / 
+**Credentials to test flow:**
+  - Creator:  / 
+  - Admin:  / 
 
-**What agent forgot to execute**:
-- The agent began investigating the file structure for the Narration-first workflow but did not make any code changes before the session ended. You need to start the implementation of this feature directly.</analysis>
+**What agent forgot to execute**
+  - The Admin Dashboard API abort bugs were again sidelined because massive new product features (Queue, Auth Reset, Version Control) fully utilized the agent's context.
+  - ESLint warnings remain unresolved.</analysis>
