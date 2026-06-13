@@ -41,6 +41,11 @@ StoryFy is an AI-powered audio storytelling platform where creators write script
   - Confirmation dialog; enters same queue; respects credits/limits/max-5
   - NEVER auto-selects new version; existing selection + Audio Studio unchanged until creator manually selects
   - `generation_type` ('normal' | 'hard_regenerate') exposed on each version (derived from cache_key marker)
+  - **Idempotent (Jun 2026):** one user action = exactly one job/version. Layered dedup:
+    - Frontend: synchronous useRef single-fire guard + stable request_id + disabled confirm button
+    - Backend: validate-first, then atomic in-memory dedup (request_id replay + per-(user,episode,part) 8s debounce); job_id minted inside the atomic block; reservation released on failure
+    - Structured logs: HARD_REGENERATE_REQUESTED / JOB_CREATED / DUPLICATE_BLOCKED / STARTED / COMPLETED
+    - Verified: 3 concurrent submits → 1 version; request_id replay → same job; legit re-gen after window still works
 - [x] **Cache/Versioning audit fix** (Jun 2026) — CRITICAL
   - Fixed `_upload_wav` deterministic storage path that caused ALL versions (normal + hard regen) to overwrite the SAME audio file (`Narrator_01.wav`). Every generation now produces a UNIQUE storage object, so versions are genuinely distinct audio assets.
   - Side effect: max-5 retention now enforces correctly (prune was previously defeated by touch_clip resurrecting rows via the shared URL).

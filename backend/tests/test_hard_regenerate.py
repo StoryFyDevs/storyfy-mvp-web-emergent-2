@@ -242,3 +242,40 @@ class TestHardRegenAutoSelectBehavior:
                 assert c.get("generation_type") in ("normal", "hard_regenerate"), (
                     f"Invalid generation_type: {c.get('generation_type')}"
                 )
+
+
+class TestHardRegenIdempotency:
+    """A single user action must create exactly ONE job/version. Duplicate
+    submissions (same request_id, or a rapid burst) must be blocked."""
+
+    def test_request_id_replay_is_deduped(self, headers, episode_with_narration, voice_id):
+        eid = episode_with_narration["episode_id"]
+        rid = f"pytest-replay-{int(time.time()*1000)}"
+        body = {"voice_id": voice_id, "text": "Idempotency replay test.", "director_notes": "", "request_id": rid}
+        r1 = requests.post(f"{BASE_URL}/api/script/{eid}/narration/part/1/hard-regenerate", headers=headers, json=body, timeout=30)
+        if r1.status_code == 403:
+            pytest.skip("Creator generation access disabled (403)")
+        assert r1.status_code == 200, r1.text
+        r2 = requests.post(f"{BASE_URL}/api/script/{eid}/narration/part/1/hard-regenerate", headers=headers, json=body, timeout=30)
+        assert r2.status_code == 200, r2.text
+        assert r2.json().get("duplicate") is True, "Replay of same request_id was not deduped"
+        assert r1.json().get("job_id") == r2.json().get("job_id"), "Replay returned a different job"
+
+    def test_rapid_burst_is_debounced(self, headers, episode_with_narration, voice_id):
+        """Two near-simultaneous submits (no request_id) → only one job created."""
+        import concurrent.futures as cf
+        eid = episode_with_narration["episode_id"]
+        time.sleep(9)  # clear any debounce window left by a prior test on this Part
+        body = {"voice_id": voice_id, "text": "Idempotency burst test.", "director_notes": ""}
+
+        def _fire():
+            return requests.post(f"{BASE_URL}/api/script/{eid}/narration/part/1/hard-regenerate", headers=headers, json=body, timeout=30)
+
+        with cf.ThreadPoolExecutor(max_workers=3) as ex:
+            responses = [f.result() for f in [ex.submit(_fire) for _ in range(3)]]
+        codes = [r.status_code for r in responses]
+        if 403 in codes:
+            pytest.skip("Creator generation access disabled (403)")
+        assert all(c == 200 for c in codes), codes
+        non_dup = [r for r in responses if r.json().get("duplicate") is False]
+        assert len(non_dup) == 1, f"Expected exactly 1 real job, got {len(non_dup)}: {[r.json() for r in responses]}"

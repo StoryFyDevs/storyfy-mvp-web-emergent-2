@@ -294,30 +294,42 @@ function ScriptEditor() {
   };
 
   // ===== HARD REGENERATE (single Part, forced fresh version) =====
+  const hardRegenInFlight = useRef(false);
   const handleHardRegenerate = async (part) => {
     if (!selectedEpisode) return;
+    // Synchronous single-fire guard — prevents duplicate jobs from rapid
+    // double-clicks / re-renders before React state (generating) updates.
+    if (hardRegenInFlight.current || generating) return;
     if (!narrationVoiceId) { toast.error('Please select a narrator voice'); return; }
     if (!part.text.trim()) { toast.error('Add narration text before regenerating'); return; }
     if (getPartCharCount(part) > NARRATION_CHAR_LIMIT) {
       toast.error(`Part ${part.part_number} exceeds the ${NARRATION_CHAR_LIMIT.toLocaleString()} character limit`);
       return;
     }
+    hardRegenInFlight.current = true;
 
     await handleSave();
     setGenerating(true);
     setGenProgress({ completed: 0, total: 1, status: 'Queued...' });
 
+    // Stable idempotency token for this single user action (dedupes retries)
+    const requestId = (window.crypto?.randomUUID?.() || `hr_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+
     try {
       const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/narration/part/${part.part_number}/hard-regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ voice_id: narrationVoiceId, text: part.text, director_notes: part.director_notes || '' }),
+        body: JSON.stringify({ voice_id: narrationVoiceId, text: part.text, director_notes: part.director_notes || '', request_id: requestId }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(friendlyError(err.detail) || 'Generation failed');
       }
       const data = await res.json();
+      if (data.duplicate) {
+        // A duplicate submission was blocked server-side — don't double-track.
+        return;
+      }
       trackNewJob({
         job_id: data.job_id,
         queue_id: data.queue_id,
@@ -331,6 +343,8 @@ function ScriptEditor() {
     } catch (error) {
       toast.error(error.message || 'Failed to start generation');
       setGenerating(false);
+    } finally {
+      hardRegenInFlight.current = false;
     }
   };
 
@@ -899,10 +913,15 @@ function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charC
   const isOverLimit = charCount > charLimit;
   const [expandVersions, setExpandVersions] = React.useState(false);
   const [showHardRegen, setShowHardRegen] = React.useState(false);
+  const [hardRegenSubmitting, setHardRegenSubmitting] = React.useState(false);
 
   const confirmHardRegen = () => {
+    if (hardRegenSubmitting) return;
+    setHardRegenSubmitting(true);
     setShowHardRegen(false);
     onHardRegenerate(part);
+    // Re-arm shortly after; the parent's `generating` state keeps the menu disabled meanwhile.
+    setTimeout(() => setHardRegenSubmitting(false), 1500);
   };
 
   return (
@@ -967,11 +986,12 @@ function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charC
               Your existing versions will remain available and nothing will be deleted. The new version won't be selected automatically — you can choose it from Generated Versions when ready.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowHardRegen(false)} className="border-white/20 text-white hover:bg-white/5" data-testid={`hard-regen-cancel-${index}`}>
+              <Button variant="outline" onClick={() => setShowHardRegen(false)} disabled={hardRegenSubmitting} className="border-white/20 text-white hover:bg-white/5" data-testid={`hard-regen-cancel-${index}`}>
                 Cancel
               </Button>
-              <Button onClick={confirmHardRegen} className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90" data-testid={`hard-regen-confirm-${index}`}>
-                <Sparkles className="w-4 h-4 mr-2" /> Generate New Version
+              <Button onClick={confirmHardRegen} disabled={hardRegenSubmitting} className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90 disabled:opacity-50" data-testid={`hard-regen-confirm-${index}`}>
+                {hardRegenSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                {hardRegenSubmitting ? 'Generating a fresh version...' : 'Generate New Version'}
               </Button>
             </div>
           </div>

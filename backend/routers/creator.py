@@ -1753,8 +1753,38 @@ class HardRegenRequest(_BaseModel):
     voice_id: str
     text: str
     director_notes: Optional[str] = ""
+    request_id: Optional[str] = None
 
 NARRATION_CHAR_LIMIT = 15000
+
+# ── Hard Regenerate idempotency / duplicate-submission guard ──
+# Single asyncio event loop ⇒ a get+set block with NO await in between is atomic
+# across concurrent requests, giving us race-free dedup without a DB lock.
+import time as _time_mod
+_HARD_REGEN_DEBOUNCE_SEC = 8.0      # block rapid duplicate submits within this window
+_HARD_REGEN_ENTRY_TTL_SEC = 120.0   # forget reservations after this long
+_hard_regen_recent: dict = {}       # (user_id, episode_id, part_number) -> reservation
+_hard_regen_by_request: dict = {}   # request_id -> reservation
+
+
+def _cleanup_hard_regen(now: float):
+    for k in list(_hard_regen_recent):
+        if now - _hard_regen_recent[k]["ts"] > _HARD_REGEN_ENTRY_TTL_SEC:
+            _hard_regen_recent.pop(k, None)
+    for rid in list(_hard_regen_by_request):
+        if now - _hard_regen_by_request[rid]["ts"] > _HARD_REGEN_ENTRY_TTL_SEC:
+            _hard_regen_by_request.pop(rid, None)
+
+
+def _hard_regen_result(res: dict, duplicate: bool = False) -> dict:
+    return {
+        "job_id": res.get("job_id", ""),
+        "queue_id": res.get("queue_id", ""),
+        "status": "queued",
+        "total_parts": 1,
+        "total_dialogues": 1,
+        "duplicate": duplicate,
+    }
 
 @creator_router.post("/script/{episode_id}/narration/generate")
 async def generate_narration_audio(episode_id: str, body: NarrationGenerateRequest, authorization: Optional[str] = Header(None)):
@@ -1840,70 +1870,111 @@ async def hard_regenerate_narration_part(episode_id: str, part_number: int, body
 
     Creates a fresh generation (bypassing cache) that is NOT auto-selected. The
     existing selected version stays active in the Audio Studio until the creator
-    manually selects the new version. Respects queue, credit and limit rules."""
+    manually selects the new version. Respects queue, credit and limit rules.
+
+    Idempotent: a single user action creates exactly ONE generation job. Duplicate
+    submissions (double-click, network retry, React re-render) are blocked via a
+    request_id replay check and a short per-Part debounce window."""
     profile = await _auth(authorization)
     user_id = profile["user_id"]
+    request_id = (body.request_id or "").strip() or None
+    logger.info(f"HARD_REGENERATE_REQUESTED user={user_id} ep={episode_id} part={part_number} req={request_id}")
 
+    # ── Validate FIRST (so invalid requests get proper 4xx, never reserve a slot) ──
     ep = await ndb.find_one("episodes", {"episode_id": episode_id})
     if not ep:
         raise HTTPException(status_code=404, detail="Episode not found")
     if ep.get("is_published"):
         raise HTTPException(status_code=423, detail="Episode is published and locked.")
-
     if not body.voice_id:
         raise HTTPException(status_code=400, detail="voice_id is required")
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Part has no text")
-
     total_chars = len(body.text) + len(body.director_notes or "")
     if total_chars > NARRATION_CHAR_LIMIT:
         raise HTTPException(status_code=422, detail="content_too_long")
-
-    # Check generation access (same gate as normal generation)
     creator_limits = await gq.get_creator_limits(user_id)
     if not creator_limits.get("allowed"):
         raise HTTPException(status_code=403, detail=creator_limits.get("reason", "audio_access_disabled"))
 
-    dialogue_index = part_number - 1
-    voice_map = {"Narrator": body.voice_id}
-    dialogues_data = [{
-        "index": dialogue_index,
-        "dialogue_index": dialogue_index,
-        "character_id": "",
-        "character_name": "Narrator",
-        "text": body.text,
-        "director_notes": body.director_notes or "",
-    }]
+    # ── Atomic dedup check + reserve (NO await inside this block) ──
+    # Single asyncio loop ⇒ this get/set sequence is atomic across concurrent
+    # requests, so exactly one of N duplicate submissions creates a job.
+    now = _time_mod.time()
+    _cleanup_hard_regen(now)
+    key = (user_id, episode_id, part_number)
 
+    if request_id and request_id in _hard_regen_by_request:
+        prev = _hard_regen_by_request[request_id]
+        logger.info(f"HARD_REGENERATE_DUPLICATE_BLOCKED reason=request_replay user={user_id} ep={episode_id} part={part_number} req={request_id} existing_job={prev.get('job_id')}")
+        return _hard_regen_result(prev, duplicate=True)
+
+    prev = _hard_regen_recent.get(key)
+    if prev and (now - prev["ts"]) < _HARD_REGEN_DEBOUNCE_SEC:
+        logger.info(f"HARD_REGENERATE_DUPLICATE_BLOCKED reason=debounce user={user_id} ep={episode_id} part={part_number} req={request_id} existing_job={prev.get('job_id')}")
+        return _hard_regen_result(prev, duplicate=True)
+
+    # Generate the job_id synchronously so blocked duplicates can return the real id.
     job_id = f"narjob_{uuid.uuid4().hex[:12]}"
-    await ndb.insert_one("script_generation_jobs", {
-        "job_id": job_id,
-        "episode_id": episode_id,
-        "user_id": user_id,
-        "status": "queued",
-        "total_dialogues": 1,
-        "completed_dialogues": 0,
-        "batches_total": 0,
-        "batches_completed": 0,
-        "result_data": "{}",
-        "error_message": "",
-    })
+    reservation = {"request_id": request_id, "job_id": job_id, "queue_id": "", "ts": now}
+    _hard_regen_recent[key] = reservation
+    if request_id:
+        _hard_regen_by_request[request_id] = reservation
+    # ── end atomic block ──
 
-    story_id = ep.get("story_id", "")
-    import queue_worker as qw
-    queue_id = await qw.submit_job(user_id, "narration_batch", {
-        "script_job_id": job_id,
-        "episode_id": episode_id,
-        "story_id": story_id,
-        "dialogues_data": dialogues_data,
-        "voice_map": voice_map,
-        "force_new": True,
-    })
+    try:
+        dialogue_index = part_number - 1
+        voice_map = {"Narrator": body.voice_id}
+        dialogues_data = [{
+            "index": dialogue_index,
+            "dialogue_index": dialogue_index,
+            "character_id": "",
+            "character_name": "Narrator",
+            "text": body.text,
+            "director_notes": body.director_notes or "",
+        }]
 
-    return {
-        "job_id": job_id,
-        "queue_id": queue_id,
-        "status": "queued",
-        "total_parts": 1,
-        "total_dialogues": 1,
-    }
+        await ndb.insert_one("script_generation_jobs", {
+            "job_id": job_id,
+            "episode_id": episode_id,
+            "user_id": user_id,
+            "status": "queued",
+            "total_dialogues": 1,
+            "completed_dialogues": 0,
+            "batches_total": 0,
+            "batches_completed": 0,
+            "result_data": "{}",
+            "error_message": "",
+        })
+
+        story_id = ep.get("story_id", "")
+        import queue_worker as qw
+        queue_id = await qw.submit_job(user_id, "narration_batch", {
+            "script_job_id": job_id,
+            "episode_id": episode_id,
+            "story_id": story_id,
+            "dialogues_data": dialogues_data,
+            "voice_map": voice_map,
+            "force_new": True,
+            "hard_regenerate": True,
+            "request_id": request_id or "",
+        })
+
+        reservation["queue_id"] = queue_id
+        reservation["ts"] = _time_mod.time()
+        logger.info(f"HARD_REGENERATE_JOB_CREATED user={user_id} ep={episode_id} part={part_number} job={job_id} queue={queue_id} req={request_id}")
+
+        return {
+            "job_id": job_id,
+            "queue_id": queue_id,
+            "status": "queued",
+            "total_parts": 1,
+            "total_dialogues": 1,
+            "duplicate": False,
+        }
+    except Exception:
+        # Job creation failed — release the reservation so the creator can retry.
+        _hard_regen_recent.pop(key, None)
+        if request_id:
+            _hard_regen_by_request.pop(request_id, None)
+        raise
