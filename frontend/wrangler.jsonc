@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "storyfy-mvp-web-emergent-2",
+  "compatibility_date": "2026-06-13",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "build"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
