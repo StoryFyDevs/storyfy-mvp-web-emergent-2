@@ -35,6 +35,11 @@ StoryFy is an AI-powered audio storytelling platform where creators write script
   - Audio Studio only loads selected (is_active=true) versions
   - 30-day retention cleanup for unselected old versions
   - Friendly labels: Latest, Selected for Episode, Previous Version
+- [x] **Hard Regenerate** (Jun 2026)
+  - Per-Part overflow menu (•••) → "Hard Regenerate" advanced action
+  - Forces a brand-new version (cache bypass via nonce in cache_key)
+  - Confirmation dialog; enters same queue; respects credits/limits/max-5
+  - NEVER auto-selects new version; existing selection + Audio Studio unchanged until creator manually selects
 
 ## Key Endpoints
 - `POST /api/script/{episode_id}/generate` → dialogue batch queue submission
@@ -43,6 +48,7 @@ StoryFy is an AI-powered audio storytelling platform where creators write script
 - `POST /api/episodes/{episode_id}/versions/{clip_id}/select` → select version
 - `POST /api/episodes/{episode_id}/versions/{clip_id}/deselect` → deselect version
 - `GET /api/episodes/{episode_id}/clips` → only selected (is_active=true) clips
+- `POST /api/script/{episode_id}/narration/part/{part_number}/hard-regenerate` → force a fresh, unselected version for a single Part (Hard Regenerate)
 - `GET /api/jobs/active` → user's active/recent jobs
 - `POST /api/auth/forgot-password` → send reset email
 - `POST /api/auth/reset-password` → update password
