@@ -110,3 +110,8 @@ frontend/node_modules/.cache/default-development/7.pack
 # Environment files
 *.env
 *.env.*
+.env
+.env.*
+credentials.json
+*.key
+.credentials
