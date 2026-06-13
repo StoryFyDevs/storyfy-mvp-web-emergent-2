@@ -210,11 +210,19 @@ def _extract_clip_from_wav(wav_bytes: bytes, start_sec: float, end_sec: float) -
 
 async def _upload_wav(wav: bytes, filename: str, episode_id: str = "") -> str:
     try:
-        path = f"scripts/{episode_id}/{filename}" if episode_id else f"scripts/{filename}"
+        # Make every upload a UNIQUE storage object so each generated version is a
+        # genuinely distinct audio asset. Without this, re-generations (and Hard
+        # Regenerate) overwrite the same path, making all "versions" point at one
+        # file. Caching still avoids redundant uploads via check_cache upstream.
+        stem, dot, ext = filename.rpartition(".")
+        if not dot:
+            stem, ext = filename, "wav"
+        unique_name = f"{stem}_{uuid.uuid4().hex[:10]}.{ext}"
+        path = f"scripts/{episode_id}/{unique_name}" if episode_id else f"scripts/{unique_name}"
         meta = await storage.upload_file(path, wav, "audio/wav")
         fid = meta.get("id", "")
         if fid:
-            logger.info(f"Uploaded {filename}: file_id={fid}, size={len(wav)}B")
+            logger.info(f"Uploaded {unique_name}: file_id={fid}, size={len(wav)}B")
             return fid
     except Exception as e:
         logger.warning(f"Upload failed for {filename}, falling back to base64: {e}")
@@ -928,8 +936,16 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
             director_notes_map[idx] = notes
             ck = compute_cache_key(d["text"], voice_id, notes)
             if force_new:
-                # Hard Regenerate: force a brand-new, unique version (bypass cache)
+                # ── HARD REGENERATE ──
+                # Bypass cache completely: skip the lookup AND use a unique key so
+                # this generation can never collide with or overwrite a real cache
+                # entry. Always forces a fresh Gemini call + new audio asset.
                 ck = f"{ck}:fresh:{uuid.uuid4().hex[:8]}"
+                d["cache_key"] = ck
+                to_generate.append(d)
+                cache_misses += 1
+                logger.info(f"[idx {idx}] HARD_REGENERATE — cache bypassed, forcing fresh generation")
+                continue
 
             cached = await check_cache(ck)
             if cached:
@@ -993,6 +1009,10 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                 if r.get("audio_url") and not r.get("error"):
                     d_match = next((d for d in to_generate if d.get("dialogue_index") == idx), None)
                     if d_match and d_match.get("cache_key"):
+                        # For Hard Regenerate the cache_key carries a unique ":fresh:"
+                        # nonce, so this write can NEVER overwrite a real cache entry
+                        # nor be returned as a false cache hit by normal generation.
+                        # It only persists duration metadata for the new version.
                         await store_cache(
                             d_match["cache_key"],
                             voice_map.get(r.get("character_name", ""), "Kore"),
@@ -1000,7 +1020,7 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                             d_match.get("director_notes", ""),
                             r["audio_url"], r["duration_seconds"]
                         )
-                        # Register clip in audio_clips table
+                        # Register clip in audio_clips table (new version record)
                         await register_clip(
                             episode_id, story_id, idx,
                             voice_map.get(r.get("character_name", ""), "Kore"),
@@ -1178,6 +1198,7 @@ async def register_clip(
 
     # Insert new clip
     file_id = f"clip_{uuid.uuid4().hex[:12]}"
+    generation_type = "hard_regenerate" if force_new else "normal"
     await ndb.insert_one("audio_clips", {
         "file_id": file_id,
         "audio_url": audio_url,
@@ -1190,7 +1211,7 @@ async def register_clip(
         "is_active": auto_select,
     })
     label = "AUTO-SELECTED" if auto_select else "UNSELECTED"
-    logger.info(f"CLIP_CREATED [{label}] file_id={file_id} episode={episode_id} idx={dialogue_index}")
+    logger.info(f"CLIP_CREATED [{label}] gen_type={generation_type} file_id={file_id} episode={episode_id} idx={dialogue_index}")
 
     # Enforce version limit — delete oldest unselected if > MAX_VERSIONS_PER_PART
     non_deleted = [c for c in existing if not c.get("pending_deletion")]

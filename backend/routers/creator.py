@@ -722,6 +722,7 @@ async def get_episode_versions(episode_id: str, authorization: Optional[str] = H
             "voice_id": clip.get("voice_id", ""),
             "duration_seconds": cache_entry.get("duration_seconds", 0),
             "is_selected": clip.get("is_active", False),
+            "generation_type": "hard_regenerate" if ":fresh:" in ck else "normal",
             "created_at": str(clip.get("created_at", "")),
         })
 

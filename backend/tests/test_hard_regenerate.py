@@ -209,3 +209,36 @@ class TestHardRegenAutoSelectBehavior:
             assert latest[0].get("is_selected") is False or len(selected) == 0, (
                 f"Latest version was auto-selected unexpectedly: {latest[0]}"
             )
+
+    def test_versions_are_distinct_audio_assets(self, headers, episode_with_narration):
+        """Each version must point at a UNIQUE storage object (no shared/overwritten file)."""
+        eid = episode_with_narration["episode_id"]
+        r = requests.get(f"{BASE_URL}/api/episodes/{eid}/versions", headers=headers, timeout=30)
+        assert r.status_code == 200
+        versions_map = r.json().get("versions", {})
+        for idx, clips in versions_map.items():
+            urls = [c.get("audio_url") for c in clips if c.get("audio_url")]
+            assert len(urls) == len(set(urls)), (
+                f"dialogue_index {idx} has versions sharing the same audio asset: {urls}"
+            )
+
+    def test_max_five_versions_retained(self, headers, episode_with_narration):
+        """Retention policy: never more than 5 non-deleted versions per Part."""
+        eid = episode_with_narration["episode_id"]
+        r = requests.get(f"{BASE_URL}/api/episodes/{eid}/versions", headers=headers, timeout=30)
+        assert r.status_code == 200
+        versions_map = r.json().get("versions", {})
+        for idx, clips in versions_map.items():
+            assert len(clips) <= 5, f"dialogue_index {idx} has {len(clips)} versions (max 5)"
+
+    def test_generation_type_metadata_present(self, headers, episode_with_narration):
+        """Every version exposes a generation_type of 'normal' or 'hard_regenerate'."""
+        eid = episode_with_narration["episode_id"]
+        r = requests.get(f"{BASE_URL}/api/episodes/{eid}/versions", headers=headers, timeout=30)
+        assert r.status_code == 200
+        versions_map = r.json().get("versions", {})
+        for clips in versions_map.values():
+            for c in clips:
+                assert c.get("generation_type") in ("normal", "hard_regenerate"), (
+                    f"Invalid generation_type: {c.get('generation_type')}"
+                )

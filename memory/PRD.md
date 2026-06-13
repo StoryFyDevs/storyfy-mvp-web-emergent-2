@@ -37,9 +37,14 @@ StoryFy is an AI-powered audio storytelling platform where creators write script
   - Friendly labels: Latest, Selected for Episode, Previous Version
 - [x] **Hard Regenerate** (Jun 2026)
   - Per-Part overflow menu (•••) → "Hard Regenerate" advanced action
-  - Forces a brand-new version (cache bypass via nonce in cache_key)
+  - Forces a brand-new version (cache bypass: explicit check_cache skip + unique ":fresh:" nonce in cache_key)
   - Confirmation dialog; enters same queue; respects credits/limits/max-5
   - NEVER auto-selects new version; existing selection + Audio Studio unchanged until creator manually selects
+  - `generation_type` ('normal' | 'hard_regenerate') exposed on each version (derived from cache_key marker)
+- [x] **Cache/Versioning audit fix** (Jun 2026) — CRITICAL
+  - Fixed `_upload_wav` deterministic storage path that caused ALL versions (normal + hard regen) to overwrite the SAME audio file (`Narrator_01.wav`). Every generation now produces a UNIQUE storage object, so versions are genuinely distinct audio assets.
+  - Side effect: max-5 retention now enforces correctly (prune was previously defeated by touch_clip resurrecting rows via the shared URL).
+  - Normal generation still cache-optimized (re-generating identical text = cache hit, no new version/upload). Hard Regenerate never writes/overwrites real cache entries.
 
 ## Key Endpoints
 - `POST /api/script/{episode_id}/generate` → dialogue batch queue submission
