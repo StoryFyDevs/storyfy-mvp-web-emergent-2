@@ -293,6 +293,47 @@ function ScriptEditor() {
     }
   };
 
+  // ===== HARD REGENERATE (single Part, forced fresh version) =====
+  const handleHardRegenerate = async (part) => {
+    if (!selectedEpisode) return;
+    if (!narrationVoiceId) { toast.error('Please select a narrator voice'); return; }
+    if (!part.text.trim()) { toast.error('Add narration text before regenerating'); return; }
+    if (getPartCharCount(part) > NARRATION_CHAR_LIMIT) {
+      toast.error(`Part ${part.part_number} exceeds the ${NARRATION_CHAR_LIMIT.toLocaleString()} character limit`);
+      return;
+    }
+
+    await handleSave();
+    setGenerating(true);
+    setGenProgress({ completed: 0, total: 1, status: 'Queued...' });
+
+    try {
+      const res = await fetch(`${base}/api/script/${selectedEpisode.episode_id}/narration/part/${part.part_number}/hard-regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ voice_id: narrationVoiceId, text: part.text, director_notes: part.director_notes || '' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(friendlyError(err.detail) || 'Generation failed');
+      }
+      const data = await res.json();
+      trackNewJob({
+        job_id: data.job_id,
+        queue_id: data.queue_id,
+        job_type: 'narration_batch',
+        total_dialogues: 1,
+        episode_id: selectedEpisode.episode_id,
+      });
+      setGenProgress({ completed: 0, total: 1, status: 'Queued...' });
+      startPolling(data.job_id);
+      toast.success('New version queued — it won\'t change your selected audio.');
+    } catch (error) {
+      toast.error(error.message || 'Failed to start generation');
+      setGenerating(false);
+    }
+  };
+
   // ===== DIALOGUE MANAGEMENT (existing) =====
   const updateDialogue = (index, field, value) => {
     setDialogues(prev => prev.map((d, i) => {
@@ -742,6 +783,8 @@ function ScriptEditor() {
                       isGenerating={generating}
                       versions={partVersions[idx] || []}
                       onSelectVersion={handleSelectVersion}
+                      onHardRegenerate={handleHardRegenerate}
+                      audioDisabled={audioDisabled}
                       base={base}
                       authHeaders={authHeaders}
                     />
@@ -850,11 +893,17 @@ function ScriptEditor() {
 
 // ===== NARRATION PART BLOCK =====
 
-function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charCount, charLimit, isGenerating, versions, onSelectVersion, base, authHeaders }) {
+function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charCount, charLimit, isGenerating, versions, onSelectVersion, onHardRegenerate, audioDisabled, base, authHeaders }) {
   const pct = charLimit > 0 ? (charCount / charLimit) * 100 : 0;
   const isNearLimit = pct > 80;
   const isOverLimit = charCount > charLimit;
   const [expandVersions, setExpandVersions] = React.useState(false);
+  const [showHardRegen, setShowHardRegen] = React.useState(false);
+
+  const confirmHardRegen = () => {
+    setShowHardRegen(false);
+    onHardRegenerate(part);
+  };
 
   return (
     <div className={`bg-charcoal rounded-lg border transition-all ${isOverLimit ? 'border-red-500/50' : isNearLimit ? 'border-amber-500/40' : 'border-white/10'}`} data-testid={`narration-part-${index}`}>
@@ -881,8 +930,53 @@ function NarrationPartBlock({ part, index, totalParts, onUpdate, onRemove, charC
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+          {/* Overflow menu — advanced actions (Hard Regenerate) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1 text-text-secondary hover:text-white transition-colors" title="More options" data-testid={`part-menu-${index}`}>
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-charcoal border-white/10 text-white text-sm min-w-[180px]">
+              <DropdownMenuItem
+                className="flex items-center gap-2 cursor-pointer hover:bg-white/5 focus:bg-white/5 text-white"
+                disabled={audioDisabled || isGenerating || !part.text?.trim() || isOverLimit}
+                onSelect={(e) => { e.preventDefault(); setShowHardRegen(true); }}
+                data-testid={`hard-regenerate-${index}`}
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-neon-cyan" /> Hard Regenerate
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      {/* Hard Regenerate Confirmation */}
+      <Dialog open={showHardRegen} onOpenChange={setShowHardRegen}>
+        <DialogContent className="bg-charcoal border-white/10 text-white max-w-md" data-testid={`hard-regen-dialog-${index}`}>
+          <DialogHeader>
+            <DialogTitle className="text-lg font-space flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-neon-cyan" /> Hard Regenerate
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-text-secondary text-sm leading-relaxed">
+              Generate a completely new version for this Part?
+            </p>
+            <p className="text-text-secondary/70 text-xs leading-relaxed">
+              Your existing versions will remain available and nothing will be deleted. The new version won't be selected automatically — you can choose it from Generated Versions when ready.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowHardRegen(false)} className="border-white/20 text-white hover:bg-white/5" data-testid={`hard-regen-cancel-${index}`}>
+                Cancel
+              </Button>
+              <Button onClick={confirmHardRegen} className="bg-neon-cyan text-obsidian hover:bg-neon-cyan/90" data-testid={`hard-regen-confirm-${index}`}>
+                <Sparkles className="w-4 h-4 mr-2" /> Generate New Version
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Part Body */}
       <div className="px-4 py-4 space-y-4">

@@ -1748,6 +1748,11 @@ class NarrationGenerateRequest(_BaseModel):
     voice_id: str
     parts: List[NarrationPart]
 
+class HardRegenRequest(_BaseModel):
+    voice_id: str
+    text: str
+    director_notes: Optional[str] = ""
+
 NARRATION_CHAR_LIMIT = 15000
 
 @creator_router.post("/script/{episode_id}/narration/generate")
@@ -1825,4 +1830,79 @@ async def generate_narration_audio(episode_id: str, body: NarrationGenerateReque
         "status": "queued",
         "total_parts": len(body.parts),
         "total_dialogues": len(dialogues_data),
+    }
+
+
+@creator_router.post("/script/{episode_id}/narration/part/{part_number}/hard-regenerate")
+async def hard_regenerate_narration_part(episode_id: str, part_number: int, body: HardRegenRequest, authorization: Optional[str] = Header(None)):
+    """Hard Regenerate: force a brand-new audio version for a single narration Part.
+
+    Creates a fresh generation (bypassing cache) that is NOT auto-selected. The
+    existing selected version stays active in the Audio Studio until the creator
+    manually selects the new version. Respects queue, credit and limit rules."""
+    profile = await _auth(authorization)
+    user_id = profile["user_id"]
+
+    ep = await ndb.find_one("episodes", {"episode_id": episode_id})
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    if ep.get("is_published"):
+        raise HTTPException(status_code=423, detail="Episode is published and locked.")
+
+    if not body.voice_id:
+        raise HTTPException(status_code=400, detail="voice_id is required")
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="Part has no text")
+
+    total_chars = len(body.text) + len(body.director_notes or "")
+    if total_chars > NARRATION_CHAR_LIMIT:
+        raise HTTPException(status_code=422, detail="content_too_long")
+
+    # Check generation access (same gate as normal generation)
+    creator_limits = await gq.get_creator_limits(user_id)
+    if not creator_limits.get("allowed"):
+        raise HTTPException(status_code=403, detail=creator_limits.get("reason", "audio_access_disabled"))
+
+    dialogue_index = part_number - 1
+    voice_map = {"Narrator": body.voice_id}
+    dialogues_data = [{
+        "index": dialogue_index,
+        "dialogue_index": dialogue_index,
+        "character_id": "",
+        "character_name": "Narrator",
+        "text": body.text,
+        "director_notes": body.director_notes or "",
+    }]
+
+    job_id = f"narjob_{uuid.uuid4().hex[:12]}"
+    await ndb.insert_one("script_generation_jobs", {
+        "job_id": job_id,
+        "episode_id": episode_id,
+        "user_id": user_id,
+        "status": "queued",
+        "total_dialogues": 1,
+        "completed_dialogues": 0,
+        "batches_total": 0,
+        "batches_completed": 0,
+        "result_data": "{}",
+        "error_message": "",
+    })
+
+    story_id = ep.get("story_id", "")
+    import queue_worker as qw
+    queue_id = await qw.submit_job(user_id, "narration_batch", {
+        "script_job_id": job_id,
+        "episode_id": episode_id,
+        "story_id": story_id,
+        "dialogues_data": dialogues_data,
+        "voice_map": voice_map,
+        "force_new": True,
+    })
+
+    return {
+        "job_id": job_id,
+        "queue_id": queue_id,
+        "status": "queued",
+        "total_parts": 1,
+        "total_dialogues": 1,
     }

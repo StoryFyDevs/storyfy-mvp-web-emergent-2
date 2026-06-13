@@ -520,6 +520,7 @@ async def _process_batch(payload: Dict, user_id: str) -> Dict:
     story_id = payload.get("story_id", "")
     dialogues_data = payload["dialogues_data"]
     voice_map = payload["voice_map"]
+    force_new = payload.get("force_new", False)
 
     # Update script_generation_jobs to processing
     await ndb.update_rows("script_generation_jobs", {"job_id": script_job_id}, {
@@ -530,7 +531,7 @@ async def _process_batch(payload: Dict, user_id: str) -> Dict:
     # Run the actual generation pipeline
     await sc.run_generation_job(
         script_job_id, episode_id, user_id,
-        dialogues_data, voice_map, story_id=story_id
+        dialogues_data, voice_map, story_id=story_id, force_new=force_new
     )
 
     return {"success": True, "script_job_id": script_job_id}

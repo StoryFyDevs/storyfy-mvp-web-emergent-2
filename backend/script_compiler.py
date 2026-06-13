@@ -881,7 +881,7 @@ async def _fallback_per_dialogue(dialogues: List[Dict], voice_map: Dict[str, str
 
 async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                              dialogues: List[Dict], voice_map: Dict[str, str],
-                             story_id: str = ""):
+                             story_id: str = "", force_new: bool = False):
     """Background task: generate audio for an entire script.
 
     1. Check cache for every dialogue
@@ -927,6 +927,9 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
             notes = d.get("director_notes", "")
             director_notes_map[idx] = notes
             ck = compute_cache_key(d["text"], voice_id, notes)
+            if force_new:
+                # Hard Regenerate: force a brand-new, unique version (bypass cache)
+                ck = f"{ck}:fresh:{uuid.uuid4().hex[:8]}"
 
             cached = await check_cache(ck)
             if cached:
@@ -1001,7 +1004,7 @@ async def run_generation_job(job_id: str, episode_id: str, user_id: str,
                         await register_clip(
                             episode_id, story_id, idx,
                             voice_map.get(r.get("character_name", ""), "Kore"),
-                            d_match["cache_key"], r["audio_url"]
+                            d_match["cache_key"], r["audio_url"], force_new=force_new
                         )
 
                 await _update_progress(job_id, len(results), len(dialogues))
@@ -1138,6 +1141,7 @@ async def _finish_job(job_id: str, results: Dict, total: int):
 async def register_clip(
     episode_id: str, story_id: str, dialogue_index: int,
     voice_id: str, cache_key: str, audio_url: str,
+    force_new: bool = False,
 ):
     """Register a generated clip as a new version in audio_clips table.
 
@@ -1146,6 +1150,9 @@ async def register_clip(
     2. If clips already exist → create as unselected (is_active=False)
        Creator must manually select via the review UI.
     3. Enforce max 5 versions per dialogue_index (delete oldest unselected).
+
+    When force_new=True (Hard Regenerate): always create a fresh unselected
+    version (never auto-select, never short-circuit on cache hit).
     """
     MAX_VERSIONS_PER_PART = 5
 
@@ -1155,18 +1162,19 @@ async def register_clip(
         "dialogue_index": dialogue_index,
     }, order_by={"created_at": "asc"}, limit=100)
 
-    # Check if same version already exists (cache hit)
-    for oc in existing:
-        if oc.get("cache_key") == cache_key and not oc.get("pending_deletion"):
-            logger.info(f"CACHE_HIT clip for dialogue_index={dialogue_index} (same version_hash)")
-            await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
-                "last_used_at": datetime.now(timezone.utc).isoformat(),
-            })
-            return oc.get("file_id")
+    # Check if same version already exists (cache hit) — skipped for Hard Regenerate
+    if not force_new:
+        for oc in existing:
+            if oc.get("cache_key") == cache_key and not oc.get("pending_deletion"):
+                logger.info(f"CACHE_HIT clip for dialogue_index={dialogue_index} (same version_hash)")
+                await ndb.update_rows("audio_clips", {"file_id": oc["file_id"]}, {
+                    "last_used_at": datetime.now(timezone.utc).isoformat(),
+                })
+                return oc.get("file_id")
 
     # Determine if this should be auto-selected
     has_active = any(c.get("is_active") and not c.get("pending_deletion") for c in existing)
-    auto_select = not has_active  # First version auto-selects
+    auto_select = (not has_active) and (not force_new)  # Hard Regenerate never auto-selects
 
     # Insert new clip
     file_id = f"clip_{uuid.uuid4().hex[:12]}"
